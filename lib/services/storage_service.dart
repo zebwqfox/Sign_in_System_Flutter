@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,8 +21,14 @@ class StorageService {
   static const _kVoice = 'voice_enabled';
   static const _kPinyin = 'pinyin_enabled';
   static const _kThemeMode = 'theme_mode';
+  static const _kThemeColorMode = 'theme_color_mode';
+  static const _kThemeSeedColor = 'theme_seed_color';
   static const _kDebugMode = 'debug_mode';
+  static const _kLiquidGlassEnabled = 'liquid_glass_enabled';
   static const _kPending = 'pending_sessions';
+  static const _kInstallId = 'install_id';
+  static const _kAuditEvents = 'audit_events';
+  static const _kAuditLastUploadedTsMs = 'audit_last_uploaded_ts_ms';
   /// 与后端 `POST /api/login` 返回的 `data.sessionId` 一致，请求头 `x-auth-token` 使用。
   static const _kAuthSessionId = 'auth_session_id';
 
@@ -87,9 +94,29 @@ class StorageService {
     await _p.setString(_kThemeMode, v);
   }
 
+  String get themeColorMode {
+    final v = _p.getString(_kThemeColorMode) ?? 'monet';
+    return (v == 'monet' || v == 'custom') ? v : 'monet';
+  }
+
+  Future<void> setThemeColorMode(String mode) async {
+    final v = (mode == 'custom') ? 'custom' : 'monet';
+    await _p.setString(_kThemeColorMode, v);
+  }
+
+  int get themeSeedColor => _p.getInt(_kThemeSeedColor) ?? 0xFF58CC02;
+
+  Future<void> setThemeSeedColor(int colorValue) async {
+    await _p.setInt(_kThemeSeedColor, colorValue);
+  }
+
   bool get debugModeEnabled => _p.getBool(_kDebugMode) ?? false;
 
   Future<void> setDebugModeEnabled(bool v) => _p.setBool(_kDebugMode, v);
+
+  bool get liquidGlassEnabled => _p.getBool(_kLiquidGlassEnabled) ?? false;
+
+  Future<void> setLiquidGlassEnabled(bool v) => _p.setBool(_kLiquidGlassEnabled, v);
 
   Future<List<LocalPendingSession>> loadPendingSessions() async {
     final raw = _p.getString(_kPending);
@@ -132,5 +159,57 @@ class StorageService {
       all.add(session);
     }
     await savePendingSessions(all);
+  }
+
+  Future<String> getOrCreateInstallId() async {
+    final old = _p.getString(_kInstallId);
+    if (old != null && old.isNotEmpty) return old;
+    final r = Random.secure();
+    final ts = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
+    final rand = List<int>.generate(12, (_) => r.nextInt(36))
+        .map((e) => e.toRadixString(36))
+        .join();
+    final id = 'ins_${ts}_$rand';
+    await _p.setString(_kInstallId, id);
+    return id;
+  }
+
+  Future<void> appendAuditEvent(Map<String, dynamic> event, {int maxItems = 2000}) async {
+    final raw = _p.getString(_kAuditEvents);
+    final list = <dynamic>[];
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        list.addAll(jsonDecode(raw) as List<dynamic>);
+      } catch (_) {}
+    }
+    list.add(event);
+    if (list.length > maxItems) {
+      list.removeRange(0, list.length - maxItems);
+    }
+    await _p.setString(_kAuditEvents, jsonEncode(list));
+  }
+
+  List<Map<String, dynamic>> loadAuditEvents({int? limit}) {
+    final raw = _p.getString(_kAuditEvents);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final list = (jsonDecode(raw) as List<dynamic>)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      if (limit == null || limit <= 0 || list.length <= limit) return list;
+      return list.sublist(list.length - limit);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> clearAuditEvents() async {
+    await _p.remove(_kAuditEvents);
+  }
+
+  int get auditLastUploadedTsMs => _p.getInt(_kAuditLastUploadedTsMs) ?? 0;
+
+  Future<void> setAuditLastUploadedTsMs(int tsMs) async {
+    await _p.setInt(_kAuditLastUploadedTsMs, tsMs);
   }
 }

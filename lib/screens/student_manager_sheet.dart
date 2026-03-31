@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../models/models.dart';
 import '../state/app_controller.dart';
+import '../widgets/top_toast.dart';
 
 /// 与 Web `StudentManager.vue` 对齐：列表 / 导入 / 编辑 / 批量删除。
 Future<void> showStudentManagerSheet(BuildContext context) {
@@ -93,9 +94,7 @@ class _StudentManagerBodyState extends State<_StudentManagerBody> with SingleTic
   }
 
   void _toast(BuildContext ctx, String msg, {bool error = false}) {
-    ScaffoldMessenger.of(ctx).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: error ? Colors.red : null),
-    );
+    TopToast.show(ctx, msg, error: error);
   }
 
   Future<void> _editStudent(AppController app, Student s) async {

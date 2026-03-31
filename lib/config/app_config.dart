@@ -27,4 +27,29 @@ class AppConfig {
     'UPDATE_CHECK_APP_CHANNEL',
     defaultValue: 'sign_in_mobile',
   );
+
+  /// 首页标题 5 连击彩蛋音频；可通过 --dart-define 覆盖。
+  static const String easterEggAudioUrl = String.fromEnvironment(
+    'EASTER_EGG_AUDIO_URL',
+    defaultValue:
+        'https://imm2.top/updatecheckfox/release/%E6%88%91%E8%AE%B0%E5%BE%97-%E8%B5%B5%E9%9B%B7.flac',
+  );
+
+  static const String easterEggAudioFileName = String.fromEnvironment(
+    'EASTER_EGG_AUDIO_FILE_NAME',
+    defaultValue: 'wojide_zhaolei.flac',
+  );
+
+  /// 审计上报接口（独立 audit-backend 的 /api/audit/upload）。
+  /// 可通过 --dart-define 覆盖。
+  static const String auditUploadUrl = String.fromEnvironment(
+    'AUDIT_UPLOAD_URL',
+    defaultValue: 'http://audit_hbust.imm2.top/api/audit/upload',
+  );
+
+  /// 可选：与 audit-backend 的 AUDIT_UPLOAD_TOKEN 对应。
+  static const String auditUploadToken = String.fromEnvironment(
+    'AUDIT_UPLOAD_TOKEN',
+    defaultValue: '',
+  );
 }

@@ -1,17 +1,28 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../config/app_config.dart';
 import '../state/app_controller.dart';
 import '../theme/app_theme.dart';
+import '../widgets/top_toast.dart';
 import '../widgets/theme_mode_bar.dart';
 import '../widgets/update_check_flow.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
+
+  static const List<Color> _themeSeedColors = [
+    Color(0xFF58CC02),
+    Color(0xFF1CB0F6),
+    Color(0xFF3B82F6),
+    Color(0xFF8B5CF6),
+    Color(0xFFF59E0B),
+    Color(0xFFEF4444),
+    Color(0xFF14B8A6),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -20,59 +31,26 @@ class SettingsScreen extends StatelessWidget {
     final muted = cs.onSurfaceVariant;
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => context.go('/'),
-        ),
+        automaticallyImplyLeading: false,
         title: const Text('设置'),
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
         children: [
-          Text(
-            '外观',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: muted),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text('主题', style: TextStyle(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 12),
-                  ThemeModeBar(app: app),
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      '「系统」即跟随手机浅色/深色；长按条目可看说明。',
-                      style: TextStyle(fontSize: 11, color: muted.withValues(alpha: 0.9)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            '点名偏好',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: muted),
-          ),
-          const SizedBox(height: 8),
+          _sectionHeader(muted, '点名偏好'),
           Card(
             child: Column(
               children: [
                 SwitchListTile(
-                  secondary: Icon(Icons.volume_up_rounded, color: AppTheme.duoBlue),
+                  secondary: const FaIcon(FontAwesomeIcons.volumeHigh, color: AppTheme.duoBlue, size: 18),
                   title: const Text('语音朗读', style: TextStyle(fontWeight: FontWeight.w700)),
-                  subtitle: const Text('按人报名时朗读姓名（与点名页一致）'),
+                  subtitle: const Text('按人报名时朗读姓名'),
                   value: app.voiceEnabled,
                   onChanged: (v) => app.setVoiceEnabled(v),
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
-                  secondary: Icon(Icons.translate_rounded, color: AppTheme.duoGreen),
+                  secondary: const FaIcon(FontAwesomeIcons.language, color: AppTheme.duoGreen, size: 18),
                   title: const Text('显示拼音', style: TextStyle(fontWeight: FontWeight.w700)),
                   subtitle: const Text('在点名卡片上显示姓名拼音'),
                   value: app.pinyinEnabled,
@@ -81,87 +59,126 @@ class SettingsScreen extends StatelessWidget {
               ],
             ),
           ),
-          if (app.debugMode) ...[
-            const SizedBox(height: 24),
-            Text(
-              '开发者',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: muted),
-            ),
-            const SizedBox(height: 8),
-            Card(
+          const SizedBox(height: 24),
+          _sectionHeader(muted, '外观'),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: Column(
                 children: [
-                  SwitchListTile(
-                    secondary: Icon(Icons.bug_report_outlined, color: AppTheme.duoOrange),
-                    title: const Text('调试模式', style: TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: Text(
-                      '登录失败时显示具体错误信息；便于排查网络与接口。${kDebugMode ? '（当前为 Flutter Debug 构建）' : ''}',
-                      style: TextStyle(fontSize: 12, color: muted),
+                  ThemeModeBar(app: app),
+                  const SizedBox(height: 8),
+                  const Divider(height: 1),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ChoiceChip(
+                          selected: app.themeColorMode == 'monet',
+                          label: const Text('莫奈动态取色'),
+                          onSelected: (v) {
+                            if (v) app.setThemeColorMode('monet');
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ChoiceChip(
+                          selected: app.themeColorMode == 'custom',
+                          label: const Text('自选主题色'),
+                          onSelected: (v) {
+                            if (v) app.setThemeColorMode('custom');
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (app.themeColorMode == 'custom') ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: _themeSeedColors.map((c) {
+                        final on = app.themeSeedColor == c.value;
+                        return GestureDetector(
+                          onTap: () => app.setThemeSeedColor(c.value),
+                          child: Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              color: c,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: on ? cs.onSurface : Colors.transparent,
+                                width: 2,
+                              ),
+                            ),
+                            child: on
+                                ? const Icon(Icons.check_rounded, color: Colors.white, size: 18)
+                                : null,
+                          ),
+                        );
+                      }).toList(),
                     ),
-                    value: app.debugMode,
-                    onChanged: (v) => app.setDebugMode(v),
+                  ],
+                  const SizedBox(height: 4),
+                  Text(
+                    app.themeColorMode == 'monet'
+                        ? 'Android 12+ 自动跟随系统壁纸取色，不支持时自动回退默认主题。'
+                        : '已使用手动主题色，优先级高于莫奈动态色。',
+                    style: TextStyle(fontSize: 12, color: muted),
                   ),
                 ],
               ),
             ),
-          ],
-          const SizedBox(height: 24),
-          Text(
-            '关于',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: muted),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 24),
+          _sectionHeader(muted, '开发者'),
           Card(
             child: Column(
               children: [
-                ListTile(
-                  leading: const Icon(Icons.info_outline_rounded),
-                  title: const Text('版本'),
-                  trailing: Text(app.localVersionLabel, style: TextStyle(color: muted, fontWeight: FontWeight.w600)),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: Icon(Icons.system_update_rounded, color: AppTheme.duoBlue),
-                  title: const Text('检查更新', style: TextStyle(fontWeight: FontWeight.w700)),
-                  subtitle: Text(
-                    updateCheckEndpointHint(),
-                    style: TextStyle(fontSize: 11, color: muted),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  onTap: () => runUpdateCheckAndShowDialog(context),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.cloud_outlined),
-                  title: const Text('接口地址'),
-                  subtitle: SelectableText(
-                    AppConfig.apiBaseUrl,
-                    style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.85)),
-                  ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.link_rounded),
-                  title: const Text('分享页域名'),
-                  subtitle: SelectableText(
-                    AppConfig.shareBaseUrl,
-                    style: TextStyle(fontSize: 12, color: cs.onSurface.withValues(alpha: 0.85)),
-                  ),
+                SwitchListTile(
+                  secondary: const FaIcon(FontAwesomeIcons.bug, color: AppTheme.duoOrange, size: 18),
+                  title: const Text('调试模式', style: TextStyle(fontWeight: FontWeight.w700)),
+                  subtitle: Text('登录失败时显示具体错误信息', style: TextStyle(fontSize: 12, color: muted)),
+                  value: app.debugMode,
+                  onChanged: (v) => app.setDebugMode(v),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 24),
-          Text(
-            '账号',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: muted),
+          _sectionHeader(muted, '关于'),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const FaIcon(FontAwesomeIcons.circleInfo, size: 18),
+                  title: const Text('版本'),
+                  trailing: Text(app.localVersionLabel, style: TextStyle(color: muted, fontWeight: FontWeight.w600)),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const FaIcon(FontAwesomeIcons.arrowsRotate, color: AppTheme.duoBlue, size: 18),
+                  title: const Text('检查更新', style: TextStyle(fontWeight: FontWeight.w700)),
+                  onTap: () => runUpdateCheckAndShowDialog(context),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const FaIcon(FontAwesomeIcons.userTie, color: AppTheme.duoGreenDark, size: 18),
+                  title: const Text('关于开发者', style: TextStyle(fontWeight: FontWeight.w700)),
+                  subtitle: const Text('头像、格言与联系方式'),
+                  onTap: () => context.push('/about/developer'),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 24),
+          _sectionHeader(muted, '账号'),
           Card(
             child: ListTile(
-              leading: Icon(Icons.logout_rounded, color: AppTheme.duoRed),
-              title: Text('退出登录', style: TextStyle(fontWeight: FontWeight.w800, color: AppTheme.duoRed)),
-              subtitle: const Text('清除本机登录状态'),
+              leading: const FaIcon(FontAwesomeIcons.rightFromBracket, color: AppTheme.duoRed, size: 18),
+              title: const Text('退出登录', style: TextStyle(fontWeight: FontWeight.w800, color: AppTheme.duoRed)),
               onTap: () async {
                 final ok = await showDialog<bool>(
                   context: context,
@@ -185,18 +202,28 @@ class SettingsScreen extends StatelessWidget {
               },
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 48),
           Center(
             child: TextButton(
               onPressed: () => Clipboard.setData(const ClipboardData(text: AppConfig.apiBaseUrl)).then((_) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已复制接口地址')));
+                  TopToast.show(context, '已复制接口地址');
                 }
               }),
               child: const Text('复制接口地址'),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _sectionHeader(Color muted, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 8),
+      child: Text(
+        title,
+        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: muted),
       ),
     );
   }

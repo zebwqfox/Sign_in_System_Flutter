@@ -5,11 +5,14 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../models/models.dart';
 import '../services/api_service.dart';
+import '../services/audit_service.dart';
 import '../services/storage_service.dart';
 
 class AppController extends ChangeNotifier {
   AppController({required this.api, required this.storage})
       : themeMode = storage.themeMode,
+        themeColorMode = storage.themeColorMode,
+        themeSeedColor = storage.themeSeedColor,
         debugMode = storage.debugModeEnabled {
     authListenable.value = storage.isLoggedIn;
     api.setOnUnauthorized(_onSessionUnauthorizedFromApi);
@@ -19,18 +22,14 @@ class AppController extends ChangeNotifier {
   final StorageService storage;
   bool _handlingUnauthorized = false;
 
-  /// 与 `pubspec.yaml` 的 `version` 一致（在 [warmStartAfterFirstFrame] 里填充）。
   String _packageVersionLabel = '—';
-
-  /// 已登录时，首帧后拉取名册进行中（用于首页占位，避免误点「开始」）。
   bool _studentsBootstrapPending = false;
 
   ThemeMode themeMode;
-
-  /// 调试模式：登录失败展示原始异常；设置页显示开发者选项。
+  String themeColorMode;
+  int themeSeedColor;
   bool debugMode;
 
-  /// 仅登录状态变化时通知，避免 GoRouter 因 Toast 等频繁重建。
   final ValueNotifier<bool> authListenable = ValueNotifier(false);
 
   List<Student> students = [];
@@ -38,11 +37,9 @@ class AppController extends ChangeNotifier {
   String? snackMessage;
   bool snackError = false;
 
-  /// 当前进行中的点名（首页「开始」到提交前）
   String draftSessionName = '';
   List<AttendanceRecord> draftRecords = [];
 
-  /// 最近一次提交结果（总结页）
   String completedSessionName = '';
   List<AttendanceRecord> completedRecords = [];
   String? completedSessionId;
@@ -50,7 +47,6 @@ class AppController extends ChangeNotifier {
 
   bool get isHomeDataBootstrapping => _studentsBootstrapPending;
 
-  /// 在 [runApp] 之后、首帧回调中执行：不阻塞首屏，缩短白屏/闪屏感知时间。
   Future<void> warmStartAfterFirstFrame() async {
     try {
       final info = await PackageInfo.fromPlatform();
@@ -80,10 +76,9 @@ class AppController extends ChangeNotifier {
   }
 
   bool get isLoggedIn => storage.isLoggedIn;
-
   bool get voiceEnabled => storage.voiceEnabled;
-
   bool get pinyinEnabled => storage.pinyinEnabled;
+  bool get liquidGlassEnabled => storage.liquidGlassEnabled;
 
   Future<void> setVoiceEnabled(bool v) async {
     await storage.setVoiceEnabled(v);
@@ -101,6 +96,24 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setThemeColorMode(String mode) async {
+    final v = (mode == 'custom') ? 'custom' : 'monet';
+    await storage.setThemeColorMode(v);
+    themeColorMode = v;
+    notifyListeners();
+  }
+
+  Future<void> setThemeSeedColor(int colorValue) async {
+    await storage.setThemeSeedColor(colorValue);
+    themeSeedColor = colorValue;
+    notifyListeners();
+  }
+
+  Future<void> setLiquidGlassEnabled(bool v) async {
+    await storage.setLiquidGlassEnabled(v);
+    notifyListeners();
+  }
+
   Future<void> setDebugMode(bool enabled) async {
     await storage.setDebugModeEnabled(enabled);
     debugMode = enabled;
@@ -108,6 +121,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> login(String password) async {
+    unawaited(AuditService.instance.logEvent(
+      category: 'auth',
+      action: 'login_attempt',
+      feature: 'login',
+    ));
     _setBusy(true);
     try {
       await api.warmupEdgeSession();
@@ -117,12 +135,22 @@ class AppController extends ChangeNotifier {
       authListenable.value = true;
       await refreshStudents(silent: true);
       notifyListeners();
+      unawaited(AuditService.instance.logEvent(
+        category: 'auth',
+        action: 'login_success',
+        feature: 'login',
+      ));
     } finally {
       _setBusy(false);
     }
   }
 
   Future<void> logout() async {
+    unawaited(AuditService.instance.logEvent(
+      category: 'auth',
+      action: 'logout',
+      feature: 'settings',
+    ));
     api.setAuthToken(null);
     await storage.clearLogin();
     authListenable.value = false;
@@ -176,9 +204,6 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 仅清状态，不触发 [notifyListeners]。若在 [notifyListeners] 派发的监听里再次 notify
-  ///（例如 main 里 showSnackBar 后立刻 clear），会导致 Provider 重入并触发
-  /// `_dependents.isEmpty` 断言。
   void clearSnack() {
     snackMessage = null;
     snackError = false;

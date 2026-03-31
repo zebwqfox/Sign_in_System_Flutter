@@ -1,12 +1,18 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../config/app_config.dart';
+import '../services/audit_service.dart';
+import '../services/easter_egg_audio_service.dart';
 import '../state/app_controller.dart';
+import '../state/root_modal_barrier.dart';
 import '../theme/app_theme.dart';
-import 'student_manager_sheet.dart';
+import '../widgets/top_toast.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,7 +22,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _titleTaps = 0;
+  int _hiddenTapCount = 0;
+  DateTime _lastHiddenTapAt = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _easterTriggeredInBurst = false;
+  bool _developerTriggeredInBurst = false;
+  bool _playerDialogShowing = false;
 
   String _greeting() {
     final h = DateTime.now().hour;
@@ -30,20 +40,105 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _startSession(BuildContext context, AppController app) async {
+    unawaited(AuditService.instance.logEvent(
+      category: 'feature',
+      action: 'tap_start_session',
+      feature: 'home',
+    ));
     if (app.students.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先导入学生名单'), backgroundColor: Colors.red),
-      );
+      TopToast.show(context, '请先导入学生名单', error: true);
+      unawaited(AuditService.instance.logEvent(
+        category: 'feature',
+        action: 'start_session_blocked_no_students',
+        feature: 'session',
+      ));
       return;
     }
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => const _SessionNameDialog(),
-    );
+    final name = await _showSessionNameDialog(context);
     if (name == null || !context.mounted) return;
+    unawaited(AuditService.instance.logEvent(
+      category: 'feature',
+      action: 'start_session_confirmed',
+      feature: 'session',
+    ));
     app.beginDraftSession(name);
-    if (!context.mounted) return;
     context.push('/session');
+  }
+
+  Future<String?> _showSessionNameDialog(BuildContext context) {
+    rootModalBarrierVisible.value = true;
+    return showGeneralDialog<String>(
+      context: context,
+      useRootNavigator: true,
+      barrierDismissible: true,
+      barrierLabel: '关闭',
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      transitionDuration: const Duration(milliseconds: 240),
+      pageBuilder: (ctx, animation, secondaryAnimation) {
+        return const _SessionNameDialog();
+      },
+      transitionBuilder: (ctx, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        final fade = Tween<double>(begin: 0, end: 1).animate(curved);
+        final scale = Tween<double>(begin: 0.96, end: 1.0).animate(curved);
+        final slide = Tween<Offset>(begin: const Offset(0, 0.03), end: Offset.zero).animate(curved);
+        return FadeTransition(
+          opacity: fade,
+          child: SlideTransition(
+            position: slide,
+            child: ScaleTransition(
+              scale: scale,
+              child: child,
+            ),
+          ),
+        );
+      },
+    ).whenComplete(() {
+      rootModalBarrierVisible.value = false;
+    });
+  }
+
+  Future<void> _handleTitleTap(AppController app) async {
+    final now = DateTime.now();
+    if (now.difference(_lastHiddenTapAt) > const Duration(seconds: 2)) {
+      _hiddenTapCount = 0;
+      _easterTriggeredInBurst = false;
+      _developerTriggeredInBurst = false;
+    }
+    _lastHiddenTapAt = now;
+    _hiddenTapCount++;
+
+    if (!_easterTriggeredInBurst && _hiddenTapCount >= 3) {
+      _easterTriggeredInBurst = true;
+      if (!_playerDialogShowing && context.mounted) {
+        _playerDialogShowing = true;
+        try {
+          final localPath = await EasterEggAudioService.instance.getBestPlayablePath();
+          if (!context.mounted) return;
+          await showDialog<void>(
+            context: context,
+            builder: (_) => _EasterEggPlayerDialog(
+              localPath: localPath,
+              remoteUrl: AppConfig.easterEggAudioUrl,
+            ),
+          );
+        } finally {
+          _playerDialogShowing = false;
+        }
+      }
+    }
+
+    if (!_developerTriggeredInBurst && _hiddenTapCount >= 10) {
+      _developerTriggeredInBurst = true;
+      unawaited(app.setDebugMode(true));
+      if (context.mounted) {
+        TopToast.show(context, '已开启调试模式：底栏设置 → 开发者 可关闭');
+      }
+    }
   }
 
   @override
@@ -53,219 +148,157 @@ class _HomeScreenState extends State<HomeScreen> {
     final metaStyle = TextStyle(color: cs.onSurfaceVariant, fontSize: 11, fontWeight: FontWeight.w600);
 
     return Scaffold(
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 12, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '签到助手',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 22,
+      body: CustomScrollView(
+        physics: const NeverScrollableScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          GestureDetector(
+                            onTap: () => _handleTitleTap(app),
+                            child: Text(
+                              '签到助手',
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 28,
+                                  ),
+                            ),
                           ),
+                          Text('v${app.localVersionLabel}', style: metaStyle),
+                        ],
+                      ),
                     ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppTheme.duoGreen,
+                      AppTheme.duoGreenDark,
+                    ],
                   ),
-                  Text('v${app.localVersionLabel}', style: metaStyle),
-                  IconButton(
-                    tooltip: '设置',
-                    icon: const Icon(Icons.settings_rounded),
-                    onPressed: () => context.push('/settings'),
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppTheme.duoGreen.withValues(alpha: 0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _greeting(),
+                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, height: 1.3),
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        _heroStat(
+                          icon: Icons.groups_rounded,
+                          value: app.isHomeDataBootstrapping ? '…' : '${app.students.length}',
+                          label: '名册人数',
+                        ),
+                        const SizedBox(width: 16),
+                        _heroStat(
+                          icon: Icons.sync_rounded,
+                          value: app.isHomeDataBootstrapping ? '同步中' : '已就绪',
+                          label: '服务状态',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 8),
+                  Text('核心操作', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: cs.onSurfaceVariant)),
+                  const SizedBox(height: 16),
+                  _actionButton(
+                    context,
+                    icon: Icons.play_arrow_rounded,
+                    title: '开始新点名',
+                    subtitle: '发起一次即时考勤',
+                    color: AppTheme.duoGreen,
+                    onTap: (app.busy || app.isHomeDataBootstrapping) ? null : () => _startSession(context, app),
+                  ),
+                  const SizedBox(height: 12),
+                  _actionButton(
+                    context,
+                    icon: Icons.group_add_rounded,
+                    title: '管理学生名册',
+                    subtitle: '同步名册或手动编辑',
+                    color: AppTheme.duoBlue,
+                    onTap: () {
+                      unawaited(AuditService.instance.logEvent(
+                        category: 'feature',
+                        action: 'tap_manage_students',
+                        feature: 'home',
+                      ));
+                      context.push('/students/manage');
+                    },
                   ),
                 ],
               ),
             ),
           ),
-          Expanded(
-            child: CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            AppTheme.duoGreen,
-                            AppTheme.duoGreen.withValues(alpha: 0.85),
-                            AppTheme.duoBlue.withValues(alpha: 0.9),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.duoGreen.withValues(alpha: 0.35),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _titleTaps++;
-                                if (_titleTaps >= 5) {
-                                  _titleTaps = 0;
-                                  unawaited(app.setDebugMode(true));
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('已开启调试模式：设置 → 开发者 可关闭；登录失败将显示详细原因')),
-                                    );
-                                  }
-                                }
-                              });
-                            },
-                            child: Text(
-                              '音乐学2专用',
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.95),
-                                fontSize: 14,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _greeting(),
-                            style: TextStyle(color: Colors.white.withValues(alpha: 0.92), fontSize: 15, fontWeight: FontWeight.w600, height: 1.3),
-                          ),
-                          const SizedBox(height: 20),
-                          Row(
-                            children: [
-                              _heroStat(
-                                icon: Icons.groups_rounded,
-                                value: app.isHomeDataBootstrapping ? '…' : '${app.students.length}',
-                                label: '名册人数',
-                              ),
-                              const SizedBox(width: 12),
-                              _heroStat(
-                                icon: (app.busy || app.isHomeDataBootstrapping)
-                                    ? Icons.hourglass_top_rounded
-                                    : Icons.check_circle_outline_rounded,
-                                value: app.busy || app.isHomeDataBootstrapping ? '…' : '就绪',
-                                label: app.isHomeDataBootstrapping ? '同步中' : '服务状态',
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.duoGreen,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 18),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                        elevation: 0,
-                      ),
-                      onPressed: (app.busy || app.isHomeDataBootstrapping) ? null : () => _startSession(context, app),
-                      child: const Text('开始新点名', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-                    ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-                    child: Text('快捷入口', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: cs.onSurfaceVariant)),
-                  ),
-                ),
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  sliver: SliverGrid(
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 1.15,
-                    ),
-                    delegate: SliverChildListDelegate([
-                      _quickTile(
-                        context,
-                        icon: Icons.calendar_month_rounded,
-                        title: '历史记录',
-                        subtitle: '往日考勤',
-                        colors: [const Color(0xFF6366F1), const Color(0xFF818CF8)],
-                        onTap: () => context.push('/history'),
-                      ),
-                      _quickTile(
-                        context,
-                        icon: Icons.bar_chart_rounded,
-                        title: '学期统计',
-                        subtitle: '出勤分析',
-                        colors: [AppTheme.duoBlue, AppTheme.duoBlue.withValues(alpha: 0.8)],
-                        onTap: () => context.push('/stats'),
-                      ),
-                      _quickTile(
-                        context,
-                        icon: Icons.receipt_long_rounded,
-                        title: '操作日志',
-                        subtitle: '审计留痕',
-                        colors: [const Color(0xFFF59E0B), const Color(0xFFFBBF24)],
-                        onTap: () => context.push('/logs'),
-                      ),
-                      _quickTile(
-                        context,
-                        icon: Icons.group_rounded,
-                        title: '学生名册',
-                        subtitle: '导入与编辑',
-                        colors: [AppTheme.duoGreenDark, AppTheme.duoGreen],
-                        onTap: () => showStudentManagerSheet(context),
-                      ),
-                    ]),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            Icon(Icons.lightbulb_outline_rounded, color: AppTheme.duoOrange, size: 28),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                '点名页可在右上角开启拼音与语音；在「设置」里也能随时调整。',
-                                style: TextStyle(fontSize: 13, height: 1.35, color: cs.onSurface.withValues(alpha: 0.88), fontWeight: FontWeight.w600),
-                              ),
-                            ),
-                          ],
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.tips_and_updates_rounded, color: AppTheme.duoOrange, size: 32),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          '点名时支持拼音辅助与语音播报。可通过底栏快速切换至「统计」或「日志」。',
+                          style: TextStyle(fontSize: 14, height: 1.4, color: cs.onSurface, fontWeight: FontWeight.w700),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(20, 8, 20, 28 + MediaQuery.paddingOf(context).bottom),
-                    child: TextButton(
-                      onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('蒙ICP备2025031646号-1')),
-                      ),
-                      child: Text('蒙ICP备2025031646号-1', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant.withValues(alpha: 0.65))),
-                    ),
-                  ),
-                ),
-              ],
+              ),
+            ),
+          ),
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 120),
+                child: Text('蒙ICP备2025031646号-1', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant.withValues(alpha: 0.5))),
+              ),
             ),
           ),
         ],
@@ -275,69 +308,62 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _heroStat({required IconData icon, required String value, required String label}) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.22),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.35)),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: Colors.white, size: 28),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(value, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
-                  Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 11, fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-          ],
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: Colors.white.withValues(alpha: 0.8), size: 20),
+              const SizedBox(width: 6),
+              Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12, fontWeight: FontWeight.w800)),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(value, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+        ],
       ),
     );
   }
 
-  Widget _quickTile(
+  Widget _actionButton(
     BuildContext context, {
     required IconData icon,
     required String title,
     required String subtitle,
-    required List<Color> colors,
-    required VoidCallback onTap,
+    required Color color,
+    required VoidCallback? onTap,
   }) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
-        child: Ink(
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: colors),
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: [
-              BoxShadow(
-                color: colors.first.withValues(alpha: 0.28),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
-              ),
-            ],
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color.withValues(alpha: 0.2), width: 2),
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(icon, color: Colors.white, size: 30),
-                const Spacer(),
-                Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 4),
-                Text(subtitle, style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 12, fontWeight: FontWeight.w600)),
-              ],
-            ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(16)),
+                child: Icon(icon, color: Colors.white, size: 28),
+              ),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
+                    Text(subtitle, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: color.withValues(alpha: 0.7))),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: color.withValues(alpha: 0.5)),
+            ],
           ),
         ),
       ),
@@ -345,27 +371,220 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// Controller 生命周期与弹层一致，避免「取消」后立即 dispose 导致 TextField 仍监听。
+class _EasterEggPlayerDialog extends StatefulWidget {
+  const _EasterEggPlayerDialog({
+    required this.localPath,
+    required this.remoteUrl,
+  });
+
+  final String? localPath;
+  final String remoteUrl;
+
+  @override
+  State<_EasterEggPlayerDialog> createState() => _EasterEggPlayerDialogState();
+}
+
+class _EasterEggPlayerDialogState extends State<_EasterEggPlayerDialog> {
+  AudioPlayer? _player;
+  StreamSubscription<PlayerState>? _stateSub;
+  PlayerState _state = PlayerState.stopped;
+  bool _starting = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_startPlayback());
+  }
+
+  @override
+  void dispose() {
+    _stateSub?.cancel();
+    unawaited(_player?.dispose());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fromCache = widget.localPath != null;
+    return AlertDialog(
+      title: const Text('隐藏播放器'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('赵雷 - 我记得'),
+          const SizedBox(height: 8),
+          Text(
+            fromCache ? '音频来源：本地缓存' : '音频来源：在线流',
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          if (_starting) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(minHeight: 3),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ],
+        ],
+      ),
+      actions: [
+        IconButton(
+          onPressed: _starting ? null : _playOrPause,
+          icon: Icon(_state == PlayerState.playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
+          tooltip: _state == PlayerState.playing ? '暂停' : '播放',
+        ),
+        IconButton(
+          onPressed: _starting ? null : _stop,
+          icon: const Icon(Icons.stop_rounded),
+          tooltip: '停止',
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('关闭'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _startPlayback() async {
+    try {
+      final player = await _ensurePlayer();
+      if (player == null) {
+        _error = '音频组件未就绪，请重启应用后再试';
+        return;
+      }
+      await player.setReleaseMode(ReleaseMode.loop);
+      if (widget.localPath != null) {
+        await player.play(DeviceFileSource(widget.localPath!), volume: 0.75);
+      } else if (widget.remoteUrl.trim().isNotEmpty) {
+        await player.play(UrlSource(widget.remoteUrl.trim()), volume: 0.75);
+      } else {
+        throw Exception('未配置彩蛋音频地址');
+      }
+    } catch (_) {
+      _error = '音频播放失败，请稍后重试';
+    } finally {
+      if (mounted) setState(() => _starting = false);
+    }
+  }
+
+  Future<void> _playOrPause() async {
+    final player = await _ensurePlayer();
+    if (player == null) return;
+    try {
+      if (_state == PlayerState.playing) {
+        await player.pause();
+        return;
+      }
+      if (widget.localPath != null) {
+        await player.play(DeviceFileSource(widget.localPath!), volume: 0.75);
+      } else if (widget.remoteUrl.trim().isNotEmpty) {
+        await player.play(UrlSource(widget.remoteUrl.trim()), volume: 0.75);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = '音频播放失败，请稍后重试';
+      });
+    }
+  }
+
+  Future<void> _stop() async {
+    final player = await _ensurePlayer();
+    if (player == null) return;
+    try {
+      await player.stop();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = '停止播放失败，请稍后重试';
+      });
+    }
+  }
+
+  Future<AudioPlayer?> _ensurePlayer() async {
+    if (_player != null) return _player;
+    try {
+      final player = AudioPlayer();
+      _stateSub = player.onPlayerStateChanged.listen((s) {
+        if (!mounted) return;
+        setState(() => _state = s);
+      });
+      _player = player;
+      return player;
+    } on MissingPluginException catch (_) {
+      if (!mounted) return null;
+      setState(() {
+        _error = '音频组件未安装，请重启后再试';
+      });
+      return null;
+    } catch (_) {
+      if (!mounted) return null;
+      setState(() {
+        _error = '音频初始化失败，请稍后重试';
+      });
+      return null;
+    }
+  }
+}
+
 class _SessionNameDialog extends StatefulWidget {
   const _SessionNameDialog();
-
   @override
   State<_SessionNameDialog> createState() => _SessionNameDialogState();
 }
 
 class _SessionNameDialogState extends State<_SessionNameDialog> {
   late final TextEditingController _ctrl;
-
   @override
   void initState() {
     super.initState();
     _ctrl = TextEditingController();
   }
-
   @override
   void dispose() {
     _ctrl.dispose();
     super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AlertDialog(
+      backgroundColor: cs.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text('这节课叫什么？'),
+      content: TextField(
+        controller: _ctrl,
+        autofocus: true,
+        decoration: InputDecoration(
+          hintText: '例如：第十二周 道法',
+          filled: true,
+          fillColor: cs.surface,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.35)),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.35)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: cs.primary, width: 1.6),
+          ),
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        FilledButton(onPressed: _submit, child: const Text('开始')),
+      ],
+    );
   }
 
   void _submit() {
@@ -375,22 +594,5 @@ class _SessionNameDialogState extends State<_SessionNameDialog> {
       n = '${d.month}月${d.day}日点名';
     }
     Navigator.pop(context, n);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('这节课叫什么？'),
-      content: TextField(
-        controller: _ctrl,
-        decoration: const InputDecoration(hintText: '例如：第十二周 道法'),
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => _submit(),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        FilledButton(onPressed: _submit, child: const Text('开始')),
-      ],
-    );
   }
 }

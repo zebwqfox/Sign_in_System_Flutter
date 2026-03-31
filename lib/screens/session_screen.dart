@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../utils/deferred_work.dart';
 import '../utils/haptics.dart';
 import '../utils/pinyin_util.dart';
+import '../widgets/top_toast.dart';
 
 class SessionScreen extends StatefulWidget {
   const SessionScreen({super.key});
@@ -85,7 +86,6 @@ class _SessionScreenState extends State<SessionScreen> {
     unawaited(_tts.speak(text));
   }
 
-  /// 朗读当前学生姓名；结束后显示「重读」（与 Web 一致）。
   Future<void> _speakStudentName(AppController app, String name) async {
     if (!_voice || name.isEmpty) return;
     _markNextStartAsStudentName = true;
@@ -213,9 +213,7 @@ class _SessionScreenState extends State<SessionScreen> {
         await app.storage.savePendingSessions(all);
         app.setCompleted(name: name, records: unique, sessionId: pending.id, isLocal: true);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('网络异常，已保存到本地'), backgroundColor: Colors.orange),
-          );
+          TopToast.show(context, '网络异常，已保存到本地', error: true);
           context.go('/summary');
         }
       }
@@ -257,8 +255,8 @@ class _SessionScreenState extends State<SessionScreen> {
       appBar: AppBar(
         title: Text(app.draftSessionName, maxLines: 1, overflow: TextOverflow.ellipsis),
         leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: _submitting ? null : () => context.go('/'),
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: _submitting ? null : () => context.pop(),
         ),
         actions: [
           TextButton(
@@ -335,7 +333,6 @@ class _SessionScreenState extends State<SessionScreen> {
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             child: Card(
-                              elevation: 0,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(28),
                                 side: BorderSide(color: AppTheme.duoGreen.withValues(alpha: 0.35), width: 3),
@@ -394,37 +391,41 @@ class _SessionScreenState extends State<SessionScreen> {
                   },
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppTheme.duoRed.withValues(alpha: 0.12),
-                          foregroundColor: AppTheme.duoRed,
-                          side: const BorderSide(color: AppTheme.duoRed, width: 2),
-                          padding: const EdgeInsets.symmetric(vertical: 20),
+              // 使用 SafeArea 包装底部按钮，防止在全屏模式下被遮挡
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.duoRed.withValues(alpha: 0.12),
+                            foregroundColor: AppTheme.duoRed,
+                            side: const BorderSide(color: AppTheme.duoRed, width: 2),
+                            padding: const EdgeInsets.symmetric(vertical: 20),
+                          ),
+                          onPressed: _submitting || s == null ? null : () => _onAbsentFlow(app),
+                          child: const Text('未到', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                         ),
-                        onPressed: _submitting || s == null ? null : () => _onAbsentFlow(app),
-                        child: const Text('未到', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppTheme.duoGreen,
-                          foregroundColor: Colors.white,
-                          shadowColor: AppTheme.duoGreenDark,
-                          elevation: 2,
-                          padding: const EdgeInsets.symmetric(vertical: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppTheme.duoGreen,
+                            foregroundColor: Colors.white,
+                            shadowColor: AppTheme.duoGreenDark,
+                            elevation: 2,
+                            padding: const EdgeInsets.symmetric(vertical: 20),
+                          ),
+                          onPressed: _submitting || s == null ? null : () => _onPresent(app),
+                          child: const Text('到了', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                         ),
-                        onPressed: _submitting || s == null ? null : () => _onPresent(app),
-                        child: const Text('到了', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],

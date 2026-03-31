@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
@@ -41,13 +40,13 @@ class _LogsScreenState extends State<LogsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.go('/')),
+        automaticallyImplyLeading: false,
         title: const Text('系统日志'),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView.builder(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
               itemCount: _logs.length,
               itemBuilder: (ctx, i) {
                 final l = _logs[i];
