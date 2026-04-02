@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-ios-simulator:
-    runs-on: macos-latest
+    runs-on: macos-26
 
     steps:
       - name: Checkout
@@ -20,6 +20,21 @@ jobs:
         with:
           channel: stable
           cache: true
+
+      - name: List available Xcode versions
+        run: ls /Applications | grep Xcode || true
+
+      - name: Select Xcode 26.3 if available
+        run: |
+          if [ -d /Applications/Xcode_26.3.app ]; then
+            sudo xcode-select -s /Applications/Xcode_26.3.app
+          else
+            echo "Xcode_26.3.app not found, fallback to default:"
+            xcode-select -p
+          fi
+
+      - name: Verify Xcode
+        run: xcodebuild -version
 
       - name: Flutter version
         run: flutter --version
