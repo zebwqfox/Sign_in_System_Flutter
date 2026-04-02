@@ -1,4 +1,4 @@
-name: iOS Build Artifacts
+name: iOS Simulator Build
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
       - ".github/workflows/ios-simulator-build.yml"
 
 jobs:
-  build-ios-artifacts:
+  build-ios-simulator:
     runs-on: macos-latest
 
     steps:
@@ -42,19 +42,3 @@ jobs:
           path: build/ios/iphonesimulator/Runner.app.tar.gz
           if-no-files-found: error
 
-      - name: Build iOS device app (no codesign)
-        run: flutter build ios --release --no-codesign
-
-      - name: Package unsigned IPA for Sideloadly
-        run: |
-          cd build/ios/iphoneos
-          mkdir -p Payload
-          cp -R Runner.app Payload/
-          zip -qry app-unsigned.ipa Payload
-
-      - name: Upload unsigned IPA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-unsigned-ipa-for-sideloadly
-          path: build/ios/iphoneos/app-unsigned.ipa
-          if-no-files-found: error

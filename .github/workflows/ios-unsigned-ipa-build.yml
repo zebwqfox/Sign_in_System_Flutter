@@ -1,0 +1,55 @@
+name: iOS Unsigned IPA Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "**"
+      - ".github/workflows/ios-unsigned-ipa-build.yml"
+
+jobs:
+  build-ios-unsigned-ipa:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS device app (no codesign)
+        run: flutter build ios --release --no-codesign
+
+      - name: Verify app binary architecture and size
+        run: |
+          file build/ios/iphoneos/Runner.app/Runner
+          xcrun lipo -info build/ios/iphoneos/Runner.app/Runner
+          du -h build/ios/iphoneos/Runner.app
+
+      - name: Package unsigned IPA for Sideloadly
+        run: |
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          zip -qry app-unsigned.ipa Payload
+
+      - name: Verify IPA size
+        run: |
+          ls -lh build/ios/iphoneos/app-unsigned.ipa
+
+      - name: Upload unsigned IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa-for-sideloadly
+          path: build/ios/iphoneos/app-unsigned.ipa
+          if-no-files-found: error
