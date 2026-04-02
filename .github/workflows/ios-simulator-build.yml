@@ -1,0 +1,43 @@
+name: iOS Simulator Build
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "**"
+      - ".github/workflows/ios-simulator-build.yml"
+
+jobs:
+  build-ios-simulator:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build iOS Simulator app
+        run: flutter build ios --simulator --debug --no-codesign
+
+      - name: Pack Runner.app
+        run: |
+          cd build/ios/iphonesimulator
+          tar -czf Runner.app.tar.gz Runner.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-runner-app
+          path: build/ios/iphonesimulator/Runner.app.tar.gz
+          if-no-files-found: error
