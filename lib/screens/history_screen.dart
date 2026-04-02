@@ -38,9 +38,11 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
+  static final DateTime _semesterStart = DateTime(2026, 3, 1);
   List<_HistItem> _items = [];
   bool _busy = false;
   bool _editListMode = false;
+  bool _semesterOnly = true;
 
   @override
   void initState() {
@@ -97,6 +99,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  bool _inCurrentSemester(_HistItem it) {
+    final dt = DateTime.tryParse(it.createdAt);
+    if (dt == null) return false;
+    return !dt.isBefore(_semesterStart);
   }
 
   Future<void> _openDetail(String id) async {
@@ -201,11 +209,51 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scoped = _semesterOnly ? _items.where(_inCurrentSemester).toList() : _items;
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
         title: const Text('历史记录'),
         actions: [
+          PopupMenuButton<bool>(
+            tooltip: '筛选',
+            initialValue: _semesterOnly,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            elevation: 8,
+            color: Theme.of(context).colorScheme.surfaceContainer,
+            onSelected: (v) => setState(() => _semesterOnly = v),
+            itemBuilder: (context) => const [
+              PopupMenuItem<bool>(
+                value: true,
+                child: Text('本学期（2026.03.01起）'),
+              ),
+              PopupMenuItem<bool>(
+                value: false,
+                child: Text('全部记录'),
+              ),
+            ],
+            child: Container(
+              margin: const EdgeInsets.only(right: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.55),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.filter_alt_rounded, size: 18, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 4),
+                  Text(
+                    _semesterOnly ? '本学期' : '全部',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+          ),
           TextButton(
             onPressed: () => setState(() => _editListMode = !_editListMode),
             child: Text(_editListMode ? '完成' : '编辑'),
@@ -214,14 +262,31 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       body: Stack(
         children: [
-          RefreshIndicator(
-            onRefresh: _refreshList,
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-              physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
-              itemCount: _items.length,
-              itemBuilder: (ctx, i) {
-                final it = _items[i];
+          Column(
+            children: [
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _refreshList,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
+                    itemCount: scoped.isEmpty ? 1 : scoped.length,
+                    itemBuilder: (ctx, i) {
+                      if (scoped.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 18),
+                          child: Center(
+                            child: Text(
+                              _semesterOnly ? '本学期暂无记录' : '暂无记录',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      final it = scoped[i];
                 final cs = Theme.of(ctx).colorScheme;
                 final pct = (it.rate * 100).round().clamp(0, 100);
 
@@ -230,7 +295,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     : cs.outlineVariant.withValues(alpha: 0.55);
                 final canOpen = !_editListMode && !it.isLocal;
 
-                return InkWell(
+                      return InkWell(
                   borderRadius: BorderRadius.circular(22),
                   onTap: canOpen ? () => _openDetail(it.id) : null,
                   child: Container(
@@ -367,9 +432,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       ],
                     ),
                   ),
-                );
-              },
-            ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
           ),
           if (_busy) const LinearProgressIndicator(),
         ],

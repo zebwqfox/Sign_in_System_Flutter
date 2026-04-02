@@ -28,18 +28,6 @@ class AppConfig {
     defaultValue: 'sign_in_mobile',
   );
 
-  /// 首页标题 5 连击彩蛋音频；可通过 --dart-define 覆盖。
-  static const String easterEggAudioUrl = String.fromEnvironment(
-    'EASTER_EGG_AUDIO_URL',
-    defaultValue:
-        'https://imm2.top/updatecheckfox/release/%E6%88%91%E8%AE%B0%E5%BE%97-%E8%B5%B5%E9%9B%B7.flac',
-  );
-
-  static const String easterEggAudioFileName = String.fromEnvironment(
-    'EASTER_EGG_AUDIO_FILE_NAME',
-    defaultValue: 'wojide_zhaolei.flac',
-  );
-
   /// 审计上报接口（独立 audit-backend 的 /api/audit/upload）。
   /// 可通过 --dart-define 覆盖。
   static const String auditUploadUrl = String.fromEnvironment(
@@ -51,5 +39,21 @@ class AppConfig {
   static const String auditUploadToken = String.fromEnvironment(
     'AUDIT_UPLOAD_TOKEN',
     defaultValue: '',
+  );
+
+  /// DeepSeek AI 锐评接口配置（建议通过 --dart-define 注入，避免写死密钥）。
+  static const String aiReviewApiBase = String.fromEnvironment(
+    'AI_REVIEW_API_BASE',
+    defaultValue: 'https://api.deepseek.com',
+  );
+
+  static const String aiReviewModel = String.fromEnvironment(
+    'AI_REVIEW_MODEL',
+    defaultValue: 'deepseek-reasoner',
+  );
+
+  static const String aiReviewApiKey = String.fromEnvironment(
+    'AI_REVIEW_API_KEY',
+    defaultValue: 'sk-7c5ae15f1acb46138bfe6fd24f3f5bf5',
   );
 }

@@ -99,9 +99,9 @@ class SettingsScreen extends StatelessWidget {
                       spacing: 10,
                       runSpacing: 10,
                       children: _themeSeedColors.map((c) {
-                        final on = app.themeSeedColor == c.value;
+                        final on = app.themeSeedColor == c.toARGB32();
                         return GestureDetector(
-                          onTap: () => app.setThemeSeedColor(c.value),
+                          onTap: () => app.setThemeSeedColor(c.toARGB32()),
                           child: Container(
                             width: 30,
                             height: 30,
@@ -156,6 +156,18 @@ class SettingsScreen extends StatelessWidget {
                   leading: const FaIcon(FontAwesomeIcons.circleInfo, size: 18),
                   title: const Text('版本'),
                   trailing: Text(app.localVersionLabel, style: TextStyle(color: muted, fontWeight: FontWeight.w600)),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const FaIcon(FontAwesomeIcons.fileContract, size: 18, color: AppTheme.duoBlueDark),
+                  title: const Text('用户协议', style: TextStyle(fontWeight: FontWeight.w700)),
+                  onTap: () => context.push('/legal/user-agreement'),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const FaIcon(FontAwesomeIcons.shieldHalved, size: 18, color: AppTheme.duoGreenDark),
+                  title: const Text('隐私政策', style: TextStyle(fontWeight: FontWeight.w700)),
+                  onTap: () => context.push('/legal/privacy-policy'),
                 ),
                 const Divider(height: 1),
                 ListTile(

@@ -5,8 +5,10 @@ import '../screens/history_detail_screen.dart';
 import '../screens/developer_profile_screen.dart';
 import '../screens/history_screen.dart';
 import '../screens/home_screen.dart';
+import '../screens/legal_document_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/logs_screen.dart';
+import '../screens/schedule_manager_screen.dart';
 import '../screens/student_manager_screen.dart';
 import '../screens/history_record_edit_screen.dart';
 import '../screens/session_screen.dart';
@@ -14,6 +16,7 @@ import '../screens/settings_screen.dart';
 import '../screens/stats_detail_screen.dart';
 import '../screens/stats_screen.dart';
 import '../screens/summary_screen.dart';
+import '../legal/legal_texts.dart';
 import '../state/app_controller.dart';
 import 'page_transitions.dart';
 
@@ -153,6 +156,14 @@ GoRouter createRouter(
         ),
       ),
       GoRoute(
+        path: '/schedule/manage',
+        pageBuilder: (context, state) => secondaryPage<void>(
+          key: state.pageKey,
+          name: state.matchedLocation,
+          child: const ScheduleManagerScreen(),
+        ),
+      ),
+      GoRoute(
         path: '/settings',
         pageBuilder: (context, state) =>
             fadeSlidePage<void>(key: state.pageKey, name: state.matchedLocation, child: const SettingsScreen()),
@@ -163,6 +174,28 @@ GoRouter createRouter(
           key: state.pageKey,
           name: state.matchedLocation,
           child: const DeveloperProfileScreen(),
+        ),
+      ),
+      GoRoute(
+        path: '/legal/user-agreement',
+        pageBuilder: (context, state) => secondaryPage<void>(
+          key: state.pageKey,
+          name: state.matchedLocation,
+          child: const LegalDocumentScreen(
+            title: '用户协议',
+            content: userAgreementText,
+          ),
+        ),
+      ),
+      GoRoute(
+        path: '/legal/privacy-policy',
+        pageBuilder: (context, state) => secondaryPage<void>(
+          key: state.pageKey,
+          name: state.matchedLocation,
+          child: const LegalDocumentScreen(
+            title: '隐私政策',
+            content: privacyPolicyText,
+          ),
         ),
       ),
     ],

@@ -180,6 +180,16 @@ Future<bool> _downloadAndInstallInApp(BuildContext context, UpdateCheckClientDec
   if (!context.mounted) return started;
   if (!started) {
     TopToast.show(context, '无法调起系统安装器', error: true);
+  } else {
+    // 安装器拉起后异步清理临时包，避免缓存长期堆积。
+    unawaited(Future<void>.delayed(const Duration(minutes: 8), () async {
+      try {
+        final f = File(apkPath!);
+        if (await f.exists()) {
+          await f.delete();
+        }
+      } catch (_) {}
+    }));
   }
   return started;
 }

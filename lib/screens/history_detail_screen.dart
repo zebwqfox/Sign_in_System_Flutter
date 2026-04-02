@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -8,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/models.dart';
+import '../services/ai_review_service.dart';
 import '../state/app_controller.dart';
 import '../utils/deferred_work.dart';
 import '../utils/haptics.dart';
@@ -33,6 +35,20 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
   String _searchKeyword = '';
   String? _activeIndexLetter;
   Timer? _indexBubbleTimer;
+  bool _aiBusy = false;
+  bool _aiPanelVisible = false;
+  bool _aiPanelExpanded = true;
+  String? _aiReviewText;
+  Timer? _aiThinkingTimer;
+  int _aiThinkingIndex = 0;
+  double _aiPanelHideProgress = 0;
+  double _lastScrollPixels = 0;
+  static const List<String> _aiThinkingHints = <String>[
+    '猫娘祈祷中...',
+    '少女折寿中...',
+    '正在给这节课做灵魂锐评喵...',
+    '猫耳雷达分析出勤波动中...',
+  ];
 
   final _editReasonCtrl = TextEditingController();
   final _searchCtrl = TextEditingController();
@@ -44,6 +60,8 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _recordsScrollCtrl.addListener(_handleRecordsScroll);
+    unawaited(_restoreAiReviewCache());
     scheduleAfterTransition(() {
       if (mounted) _load();
     });
@@ -52,10 +70,51 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
   @override
   void dispose() {
     _indexBubbleTimer?.cancel();
+    _aiThinkingTimer?.cancel();
+    _recordsScrollCtrl.removeListener(_handleRecordsScroll);
     _editReasonCtrl.dispose();
     _searchCtrl.dispose();
     _recordsScrollCtrl.dispose();
     super.dispose();
+  }
+
+  void _handleRecordsScroll() {
+    if (!_recordsScrollCtrl.hasClients) return;
+    final pixels = _recordsScrollCtrl.position.pixels;
+    final delta = pixels - _lastScrollPixels;
+    _lastScrollPixels = pixels;
+    if (!_aiPanelVisible || delta.abs() < 0.25) return;
+
+    const travel = 140.0;
+    var next = _aiPanelHideProgress + (delta / travel);
+    if (pixels <= 0) next = 0;
+    next = next.clamp(0.0, 1.0);
+    if ((next - _aiPanelHideProgress).abs() < 0.006) return;
+    if (!mounted) return;
+    setState(() => _aiPanelHideProgress = next);
+  }
+
+  void _startAiThinkingHints() {
+    _aiThinkingTimer?.cancel();
+    _aiThinkingTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) {
+      if (!mounted || !_aiBusy) return;
+      setState(() {
+        _aiThinkingIndex = (_aiThinkingIndex + 1) % _aiThinkingHints.length;
+      });
+    });
+  }
+
+  Future<void> _restoreAiReviewCache() async {
+    try {
+      final cached = await context.read<AppController>().storage.getAiReviewCache(widget.sessionId);
+      if (!mounted || cached == null || cached.trim().isEmpty) return;
+      setState(() {
+        _aiReviewText = cached;
+        _aiPanelVisible = true;
+        _aiPanelExpanded = false;
+        _aiPanelHideProgress = 0;
+      });
+    } catch (_) {}
   }
 
   void _scheduleHideIndexBubble([
@@ -348,6 +407,249 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
     }
   }
 
+  Future<void> _runAiReview({bool forceRefresh = false}) async {
+    final detail = _detail;
+    final meta = _sessionMeta;
+    if (detail == null || meta == null || _aiBusy) return;
+    final storage = context.read<AppController>().storage;
+
+    if (!forceRefresh) {
+      final current = _aiReviewText?.trim() ?? '';
+      if (current.isNotEmpty) {
+        setState(() {
+          _aiPanelVisible = true;
+          _aiPanelExpanded = true;
+          _aiPanelHideProgress = 0;
+        });
+        TopToast.show(context, '已展示本地锐评，点刷新可重新生成');
+        return;
+      }
+      final cached = await storage.getAiReviewCache(widget.sessionId);
+      if (cached != null && cached.trim().isNotEmpty && mounted) {
+        setState(() {
+          _aiReviewText = cached;
+          _aiPanelVisible = true;
+          _aiPanelExpanded = true;
+          _aiPanelHideProgress = 0;
+        });
+        TopToast.show(context, '已使用本地缓存锐评');
+        return;
+      }
+    }
+
+    final total = detail.length;
+    final present = detail.where((r) => r.status == 'present').length;
+    final late = detail.where((r) => r.status == 'late').length;
+    final leave = detail.where((r) => r.status == 'leave').length;
+    final absent = detail.where((r) => r.status != 'present' && r.status != 'late' && r.status != 'leave').length;
+    final ratePercent = total == 0 ? 0 : (((present + late) / total) * 100).round();
+
+    final lateNames = detail
+        .where((r) => r.status == 'late')
+        .map((r) => r.studentName)
+        .take(8)
+        .toList();
+    final absentNames = detail
+        .where((r) => r.status != 'present' && r.status != 'late' && r.status != 'leave')
+        .map((r) => r.studentName)
+        .take(8)
+        .toList();
+
+    final sessionName = '${meta['session_name'] ?? '未知课程'}';
+    final topLateNames = lateNames.isEmpty ? '无' : lateNames.join('、');
+    final topAbsentNames = absentNames.isEmpty ? '无' : absentNames.join('、');
+
+    setState(() {
+      _aiBusy = true;
+      _aiPanelVisible = true;
+      _aiPanelExpanded = true;
+      _aiPanelHideProgress = 0;
+      _aiReviewText = null;
+      _aiThinkingIndex = 0;
+    });
+    _startAiThinkingHints();
+    try {
+      final text = await AiReviewService().review(
+        sessionName: sessionName,
+        total: total,
+        present: present,
+        late: late,
+        leave: leave,
+        absent: absent,
+        ratePercent: ratePercent,
+        topLateNames: topLateNames,
+        topAbsentNames: topAbsentNames,
+      );
+      if (!mounted) return;
+      await storage.setAiReviewCache(widget.sessionId, text);
+      setState(() => _aiReviewText = text);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _aiReviewText = '生成失败：$e');
+        TopToast.show(
+          context,
+          'AI 评价失败：$e',
+          error: true,
+        );
+      }
+    } finally {
+      _aiThinkingTimer?.cancel();
+      if (mounted) setState(() => _aiBusy = false);
+    }
+  }
+
+  Widget _buildAiReviewPanel() {
+    final cs = Theme.of(context).colorScheme;
+    final mq = MediaQuery.of(context);
+    final bottomSafe = mq.padding.bottom;
+    final keyboardOpen = mq.viewInsets.bottom > 0;
+    final filtering = _searchKeyword.trim().isNotEmpty;
+    final effectiveVisible = _aiPanelVisible && !keyboardOpen && !filtering;
+    final panelHeight = _aiPanelExpanded ? 300.0 : 64.0;
+    final easedHide = Curves.easeInCubic.transform(_aiPanelHideProgress.clamp(0, 1));
+    final panelOffsetY = effectiveVisible ? easedHide : 1.0;
+    final panelOpacity = effectiveVisible ? (1 - easedHide).clamp(0.0, 1.0) : 0.0;
+    return Positioned(
+      left: 12,
+      right: 12,
+      bottom: 10 + bottomSafe,
+      child: IgnorePointer(
+        ignoring: !effectiveVisible || easedHide > 0.92,
+        child: AnimatedSlide(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOutCubic,
+          offset: Offset(0, panelOffsetY),
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 140),
+            opacity: panelOpacity,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                height: panelHeight,
+                decoration: BoxDecoration(
+                  color: cs.surface.withValues(alpha: 0.78),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.36)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.10),
+                      blurRadius: 18,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => setState(() => _aiPanelExpanded = !_aiPanelExpanded),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 5, 6, 5),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: cs.primary.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(Icons.auto_awesome_rounded, color: cs.primary, size: 18),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'AI 猫娘锐评',
+                                style: TextStyle(
+                                  color: cs.onSurface,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 14.5,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: '重新生成',
+                              onPressed: _aiBusy ? null : () => _runAiReview(forceRefresh: true),
+                              icon: const Icon(Icons.refresh_rounded),
+                            ),
+                            IconButton(
+                              tooltip: _aiPanelExpanded ? '收起' : '展开',
+                              onPressed: () => setState(() => _aiPanelExpanded = !_aiPanelExpanded),
+                              icon: Icon(
+                                _aiPanelExpanded
+                                    ? Icons.keyboard_arrow_down_rounded
+                                    : Icons.keyboard_arrow_up_rounded,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (_aiPanelExpanded)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                            decoration: BoxDecoration(
+                              color: cs.surfaceContainerLow.withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: _aiBusy
+                                ? Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      AnimatedSwitcher(
+                                        duration: const Duration(milliseconds: 260),
+                                        switchInCurve: Curves.easeOutCubic,
+                                        switchOutCurve: Curves.easeInCubic,
+                                        child: Text(
+                                          _aiThinkingHints[_aiThinkingIndex],
+                                          key: ValueKey<int>(_aiThinkingIndex),
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            color: cs.onSurfaceVariant,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : SingleChildScrollView(
+                                    child: SelectableText(
+                                      (_aiReviewText ?? '点上方“猫娘怎么说”，生成本次课程锐评喵'),
+                                      style: TextStyle(
+                                        height: 1.58,
+                                        fontWeight: FontWeight.w600,
+                                        color: cs.onSurface,
+                                      ),
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final meta = _sessionMeta;
@@ -359,6 +661,14 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
       appBar: AppBar(
         title: Text(_loadFailed ? '加载失败' : '${meta?['session_name'] ?? '考勤详情'}'),
         actions: [
+          if (meta != null)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: _GradientOutlineAiButton(
+                busy: _aiBusy,
+                onTap: _aiBusy ? null : _runAiReview,
+              ),
+            ),
           if (meta != null && meta['isLocal'] == true && widget.isAdmin)
             IconButton(icon: const Icon(Icons.sync_rounded), onPressed: _syncLocalSession),
           if (meta != null && meta['isLocal'] != true) ...[
@@ -374,7 +684,12 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
             AnimatedPadding(
               duration: const Duration(milliseconds: 240),
               curve: Curves.easeOutCubic,
-              padding: EdgeInsets.fromLTRB(16, 16, _sortByPinyinInitial ? 44 : 16, 16),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                _sortByPinyinInitial ? 44 : 16,
+                16,
+              ),
               child: SingleChildScrollView(
                 controller: _recordsScrollCtrl,
                 padding: const EdgeInsets.all(0),
@@ -576,6 +891,7 @@ class _HistoryDetailScreenState extends State<HistoryDetailScreen> {
               ),
             ),
           if (_busy && detail != null) const LinearProgressIndicator(),
+          if (_aiPanelVisible) _buildAiReviewPanel(),
         ],
       ),
     );
@@ -758,6 +1074,137 @@ class _LegendDot extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _GradientOutlineAiButton extends StatefulWidget {
+  const _GradientOutlineAiButton({
+    required this.busy,
+    required this.onTap,
+  });
+
+  final bool busy;
+  final Future<void> Function()? onTap;
+
+  @override
+  State<_GradientOutlineAiButton> createState() => _GradientOutlineAiButtonState();
+}
+
+class _GradientOutlineAiButtonState extends State<_GradientOutlineAiButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 7),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final enabled = widget.onTap != null;
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, _) {
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: widget.onTap == null ? null : () => widget.onTap!.call(),
+            borderRadius: BorderRadius.circular(11),
+            splashColor: Colors.transparent,
+            highlightColor: Colors.transparent,
+            child: CustomPaint(
+              painter: _GradientOutlinePainter(
+                opacity: enabled ? 1 : 0.45,
+                shift: _ctrl.value,
+              ),
+              child: Container(
+                height: 34,
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                alignment: Alignment.center,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    widget.busy
+                        ? SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: cs.onSurface,
+                            ),
+                          )
+                        : const Icon(Icons.auto_awesome_rounded, size: 16),
+                    const SizedBox(width: 6),
+                    Text(
+                      '猫娘怎么说',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                        color: cs.onSurface,
+                        height: 1.0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _GradientOutlinePainter extends CustomPainter {
+  const _GradientOutlinePainter({
+    required this.opacity,
+    required this.shift,
+  });
+
+  final double opacity;
+  final double shift;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
+    final rrect = RRect.fromRectAndRadius(rect.deflate(0.8), const Radius.circular(11));
+    final dx = -size.width + (size.width * 2 * shift);
+    final shader = const LinearGradient(
+      colors: [
+        Color(0xFF4285F4),
+        Color(0xFF34A853),
+        Color(0xFFFBBC05),
+        Color(0xFFEA4335),
+      ],
+      stops: [0.0, 0.34, 0.66, 1.0],
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      tileMode: TileMode.mirror,
+    ).createShader(Rect.fromLTWH(dx, 0, size.width, size.height));
+    final paint = Paint()
+      ..shader = shader
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..color = Colors.white.withValues(alpha: opacity);
+    canvas.drawRRect(rrect, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _GradientOutlinePainter oldDelegate) {
+    return oldDelegate.opacity != opacity || oldDelegate.shift != shift;
   }
 }
 

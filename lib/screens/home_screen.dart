@@ -1,14 +1,13 @@
 import 'dart:async';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../config/app_config.dart';
 import '../services/audit_service.dart';
-import '../services/easter_egg_audio_service.dart';
+import '../services/course_schedule_service.dart';
+import '../services/storage_service.dart';
 import '../state/app_controller.dart';
 import '../state/root_modal_barrier.dart';
 import '../theme/app_theme.dart';
@@ -24,9 +23,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _hiddenTapCount = 0;
   DateTime _lastHiddenTapAt = DateTime.fromMillisecondsSinceEpoch(0);
-  bool _easterTriggeredInBurst = false;
   bool _developerTriggeredInBurst = false;
-  bool _playerDialogShowing = false;
 
   String _greeting() {
     final h = DateTime.now().hour;
@@ -54,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ));
       return;
     }
-    final name = await _showSessionNameDialog(context);
+    final name = await _showSessionNameDialog(context, app.storage);
     if (name == null || !context.mounted) return;
     unawaited(AuditService.instance.logEvent(
       category: 'feature',
@@ -65,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
     context.push('/session');
   }
 
-  Future<String?> _showSessionNameDialog(BuildContext context) {
+  Future<String?> _showSessionNameDialog(BuildContext context, StorageService storage) {
     rootModalBarrierVisible.value = true;
     return showGeneralDialog<String>(
       context: context,
@@ -75,7 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
       barrierColor: Colors.black.withValues(alpha: 0.55),
       transitionDuration: const Duration(milliseconds: 240),
       pageBuilder: (ctx, animation, secondaryAnimation) {
-        return const _SessionNameDialog();
+        return _SessionNameDialog(storage: storage);
       },
       transitionBuilder: (ctx, animation, secondaryAnimation, child) {
         final curved = CurvedAnimation(
@@ -106,31 +103,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final now = DateTime.now();
     if (now.difference(_lastHiddenTapAt) > const Duration(seconds: 2)) {
       _hiddenTapCount = 0;
-      _easterTriggeredInBurst = false;
       _developerTriggeredInBurst = false;
     }
     _lastHiddenTapAt = now;
     _hiddenTapCount++;
-
-    if (!_easterTriggeredInBurst && _hiddenTapCount >= 3) {
-      _easterTriggeredInBurst = true;
-      if (!_playerDialogShowing && context.mounted) {
-        _playerDialogShowing = true;
-        try {
-          final localPath = await EasterEggAudioService.instance.getBestPlayablePath();
-          if (!context.mounted) return;
-          await showDialog<void>(
-            context: context,
-            builder: (_) => _EasterEggPlayerDialog(
-              localPath: localPath,
-              remoteUrl: AppConfig.easterEggAudioUrl,
-            ),
-          );
-        } finally {
-          _playerDialogShowing = false;
-        }
-      }
-    }
 
     if (!_developerTriggeredInBurst && _hiddenTapCount >= 10) {
       _developerTriggeredInBurst = true;
@@ -265,6 +241,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       context.push('/students/manage');
                     },
                   ),
+                  const SizedBox(height: 12),
+                  _actionButton(
+                    context,
+                    icon: Icons.calendar_month_rounded,
+                    title: '管理课表',
+                    subtitle: '用于课程自动匹配',
+                    color: AppTheme.duoOrange,
+                    onTap: () => context.push('/schedule/manage'),
+                  ),
                 ],
               ),
             ),
@@ -371,180 +356,24 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class _EasterEggPlayerDialog extends StatefulWidget {
-  const _EasterEggPlayerDialog({
-    required this.localPath,
-    required this.remoteUrl,
-  });
-
-  final String? localPath;
-  final String remoteUrl;
-
-  @override
-  State<_EasterEggPlayerDialog> createState() => _EasterEggPlayerDialogState();
-}
-
-class _EasterEggPlayerDialogState extends State<_EasterEggPlayerDialog> {
-  AudioPlayer? _player;
-  StreamSubscription<PlayerState>? _stateSub;
-  PlayerState _state = PlayerState.stopped;
-  bool _starting = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_startPlayback());
-  }
-
-  @override
-  void dispose() {
-    _stateSub?.cancel();
-    unawaited(_player?.dispose());
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final fromCache = widget.localPath != null;
-    return AlertDialog(
-      title: const Text('隐藏播放器'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('赵雷 - 我记得'),
-          const SizedBox(height: 8),
-          Text(
-            fromCache ? '音频来源：本地缓存' : '音频来源：在线流',
-            style: TextStyle(
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-          if (_starting) ...[
-            const SizedBox(height: 12),
-            const LinearProgressIndicator(minHeight: 3),
-          ],
-          if (_error != null) ...[
-            const SizedBox(height: 10),
-            Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-          ],
-        ],
-      ),
-      actions: [
-        IconButton(
-          onPressed: _starting ? null : _playOrPause,
-          icon: Icon(_state == PlayerState.playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
-          tooltip: _state == PlayerState.playing ? '暂停' : '播放',
-        ),
-        IconButton(
-          onPressed: _starting ? null : _stop,
-          icon: const Icon(Icons.stop_rounded),
-          tooltip: '停止',
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('关闭'),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _startPlayback() async {
-    try {
-      final player = await _ensurePlayer();
-      if (player == null) {
-        _error = '音频组件未就绪，请重启应用后再试';
-        return;
-      }
-      await player.setReleaseMode(ReleaseMode.loop);
-      if (widget.localPath != null) {
-        await player.play(DeviceFileSource(widget.localPath!), volume: 0.75);
-      } else if (widget.remoteUrl.trim().isNotEmpty) {
-        await player.play(UrlSource(widget.remoteUrl.trim()), volume: 0.75);
-      } else {
-        throw Exception('未配置彩蛋音频地址');
-      }
-    } catch (_) {
-      _error = '音频播放失败，请稍后重试';
-    } finally {
-      if (mounted) setState(() => _starting = false);
-    }
-  }
-
-  Future<void> _playOrPause() async {
-    final player = await _ensurePlayer();
-    if (player == null) return;
-    try {
-      if (_state == PlayerState.playing) {
-        await player.pause();
-        return;
-      }
-      if (widget.localPath != null) {
-        await player.play(DeviceFileSource(widget.localPath!), volume: 0.75);
-      } else if (widget.remoteUrl.trim().isNotEmpty) {
-        await player.play(UrlSource(widget.remoteUrl.trim()), volume: 0.75);
-      }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error = '音频播放失败，请稍后重试';
-      });
-    }
-  }
-
-  Future<void> _stop() async {
-    final player = await _ensurePlayer();
-    if (player == null) return;
-    try {
-      await player.stop();
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _error = '停止播放失败，请稍后重试';
-      });
-    }
-  }
-
-  Future<AudioPlayer?> _ensurePlayer() async {
-    if (_player != null) return _player;
-    try {
-      final player = AudioPlayer();
-      _stateSub = player.onPlayerStateChanged.listen((s) {
-        if (!mounted) return;
-        setState(() => _state = s);
-      });
-      _player = player;
-      return player;
-    } on MissingPluginException catch (_) {
-      if (!mounted) return null;
-      setState(() {
-        _error = '音频组件未安装，请重启后再试';
-      });
-      return null;
-    } catch (_) {
-      if (!mounted) return null;
-      setState(() {
-        _error = '音频初始化失败，请稍后重试';
-      });
-      return null;
-    }
-  }
-}
-
 class _SessionNameDialog extends StatefulWidget {
-  const _SessionNameDialog();
+  const _SessionNameDialog({required this.storage});
+
+  final StorageService storage;
+
   @override
   State<_SessionNameDialog> createState() => _SessionNameDialogState();
 }
 
 class _SessionNameDialogState extends State<_SessionNameDialog> {
   late final TextEditingController _ctrl;
+  String? _autoMatchedName;
+  bool _matching = true;
   @override
   void initState() {
     super.initState();
     _ctrl = TextEditingController();
+    unawaited(_tryAutoFillCourseName());
   }
   @override
   void dispose() {
@@ -558,27 +387,69 @@ class _SessionNameDialogState extends State<_SessionNameDialog> {
       backgroundColor: cs.surfaceContainerLow,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       title: const Text('这节课叫什么？'),
-      content: TextField(
-        controller: _ctrl,
-        autofocus: true,
-        decoration: InputDecoration(
-          hintText: '例如：第十二周 道法',
-          filled: true,
-          fillColor: cs.surface,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.35)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: '例如：第十二周 道法',
+              filled: true,
+              fillColor: cs.surface,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.35)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.35)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide(color: cs.primary, width: 1.6),
+              ),
+            ),
+            onSubmitted: (_) => _submit(),
           ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.35)),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide(color: cs.primary, width: 1.6),
-          ),
-        ),
-        onSubmitted: (_) => _submit(),
+          const SizedBox(height: 10),
+          if (_matching)
+            Row(
+              children: [
+                SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: cs.primary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '正在按上课时间匹配课程…',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else if (_autoMatchedName != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '已自动匹配：$_autoMatchedName',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: cs.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+        ],
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
@@ -594,5 +465,28 @@ class _SessionNameDialogState extends State<_SessionNameDialog> {
       n = '${d.month}月${d.day}日点名';
     }
     Navigator.pop(context, n);
+  }
+
+  Future<void> _tryAutoFillCourseName() async {
+    try {
+      final matched = await CourseScheduleService.instance.matchCourseNameNow(
+        widget.storage,
+        DateTime.now(),
+      );
+      if (!mounted) return;
+      if (matched != null && _ctrl.text.trim().isEmpty) {
+        _ctrl.text = matched;
+        _ctrl.selection = TextSelection.fromPosition(TextPosition(offset: _ctrl.text.length));
+      }
+      setState(() {
+        _autoMatchedName = matched;
+        _matching = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _matching = false;
+      });
+    }
   }
 }

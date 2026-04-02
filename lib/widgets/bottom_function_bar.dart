@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'dart:async';
 
 class BottomFunctionBar extends StatefulWidget {
   const BottomFunctionBar({
@@ -19,9 +18,7 @@ class BottomFunctionBar extends StatefulWidget {
 class _BottomFunctionBarState extends State<BottomFunctionBar> {
   bool _ready = false;
   String _location = '/';
-  bool _layoutShown = true;
   bool _visible = true;
-  Timer? _hideTimer;
 
   late final VoidCallback _listener;
 
@@ -29,8 +26,7 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
   void initState() {
     super.initState();
     _location = _currentLocation();
-    _layoutShown = _shouldShowForLocation(_location);
-    _visible = _layoutShown;
+    _visible = _shouldShowForLocation(_location);
     _listener = () {
       if (!_ready) return;
       if (!mounted) return;
@@ -38,20 +34,7 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
       final show = _shouldShowForLocation(newLoc);
       setState(() {
         _location = newLoc;
-        if (show) {
-          _hideTimer?.cancel();
-          _layoutShown = true;
-          _visible = true;
-        } else {
-          // 先淡出/滑出，但保持高度不变；动画结束后再把高度设为 0
-          _visible = false;
-          _hideTimer?.cancel();
-          _hideTimer = Timer(const Duration(milliseconds: 260), () {
-            if (!mounted) return;
-            if (_shouldShowForLocation(_location)) return;
-            setState(() => _layoutShown = false);
-          });
-        }
+        _visible = show;
       });
     };
 
@@ -63,7 +46,6 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
       final show = _shouldShowForLocation(newLoc);
       setState(() {
         _location = newLoc;
-        _layoutShown = show;
         _visible = show;
       });
     });
@@ -84,7 +66,6 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
   @override
   void dispose() {
     widget.router.routerDelegate.removeListener(_listener);
-    _hideTimer?.cancel();
     super.dispose();
   }
 
@@ -148,8 +129,10 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
       left: false,
       right: false,
       bottom: true,
-      child: SizedBox(
-        height: _layoutShown ? 64 : 0,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeInOutCubic,
+        height: _visible ? 64 : 0,
         child: ClipRect(
           child: IgnorePointer(
             ignoring: !_visible,
@@ -178,48 +161,93 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
     Color inactiveColor,
   ) {
     final color = active ? activeColor : inactiveColor;
+    final outlinedIcon = _outlinedVariant(icon);
     return Expanded(
       child: Material(
         type: MaterialType.transparency,
-        clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(18),
-            splashColor: activeColor.withValues(alpha: 0.24),
-            highlightColor: Colors.transparent,
-            onTap: () => widget.router.go(target),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: EdgeInsets.zero,
-              decoration: BoxDecoration(
-                color: active ? activeColor.withValues(alpha: 0.12) : Colors.transparent,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.center,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(icon, size: 24, color: color),
-                    const SizedBox(height: 4),
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: active ? FontWeight.w900 : FontWeight.w700,
-                        color: color,
-                      ),
-                    ),
-                  ],
+        child: InkWell(
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
+          overlayColor: WidgetStateProperty.all(Colors.transparent),
+          onTap: () => widget.router.go(target),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: active
+                      ? TweenAnimationBuilder<double>(
+                          key: ValueKey<String>('draw-$index-$active'),
+                          tween: Tween<double>(begin: 0, end: 1),
+                          duration: const Duration(milliseconds: 320),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, progress, _) {
+                            final revealStart = (progress - 0.22).clamp(0.0, 1.0);
+                            return Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                ShaderMask(
+                                  blendMode: BlendMode.dstIn,
+                                  shaderCallback: (bounds) {
+                                    final edge = progress.clamp(0.0, 1.0);
+                                    final soft = 0.18;
+                                    final hardStart = (edge - soft).clamp(0.0, 1.0);
+                                    return LinearGradient(
+                                      begin: Alignment.centerLeft,
+                                      end: Alignment.centerRight,
+                                      colors: const [
+                                        Colors.black,
+                                        Colors.black,
+                                        Colors.transparent,
+                                        Colors.transparent,
+                                      ],
+                                      stops: [
+                                        0,
+                                        hardStart,
+                                        edge,
+                                        1,
+                                      ],
+                                    ).createShader(bounds);
+                                  },
+                                  child: Icon(outlinedIcon, size: 24, color: activeColor),
+                                ),
+                                Opacity(
+                                  opacity: revealStart,
+                                  child: Icon(icon, size: 24, color: activeColor),
+                                ),
+                              ],
+                            );
+                          },
+                        )
+                      : Icon(outlinedIcon, size: 24, color: color),
                 ),
-              ),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: active ? FontWeight.w900 : FontWeight.w700,
+                    color: color,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
       ),
     );
+  }
+
+  IconData _outlinedVariant(IconData icon) {
+    if (icon == Icons.home_rounded) return Icons.home_outlined;
+    if (icon == Icons.history_rounded) return Icons.history_outlined;
+    if (icon == Icons.bar_chart_rounded) return Icons.bar_chart_outlined;
+    if (icon == Icons.receipt_long_rounded) return Icons.receipt_long_outlined;
+    if (icon == Icons.settings_rounded) return Icons.settings_outlined;
+    return icon;
   }
 }

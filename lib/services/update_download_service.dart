@@ -30,6 +30,7 @@ class UpdateDownloadService {
     final dir = await getTemporaryDirectory();
     final updatesDir = Directory('${dir.path}${Platform.pathSeparator}updates');
     await updatesDir.create(recursive: true);
+    await _cleanupOldArtifacts(updatesDir);
     final ext = artifact.kind.toLowerCase() == 'apk' ? 'apk' : 'bin';
     final filePath =
         '${updatesDir.path}${Platform.pathSeparator}update_${DateTime.now().millisecondsSinceEpoch}.$ext';
@@ -76,5 +77,19 @@ class UpdateDownloadService {
     }
 
     return filePath;
+  }
+
+  Future<void> _cleanupOldArtifacts(Directory updatesDir) async {
+    try {
+      if (!await updatesDir.exists()) return;
+      await for (final entity in updatesDir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.isEmpty ? '' : entity.uri.pathSegments.last;
+        if (!name.startsWith('update_')) continue;
+        try {
+          await entity.delete();
+        } catch (_) {}
+      }
+    } catch (_) {}
   }
 }

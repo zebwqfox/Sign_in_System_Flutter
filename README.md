@@ -69,7 +69,6 @@ flutter build apk --release
 --dart-define=UPDATE_CHECK_APP_CHANNEL=sign_in_mobile
 --dart-define=AUDIT_UPLOAD_URL=http://你的审计服务/api/audit/upload
 --dart-define=AUDIT_UPLOAD_TOKEN=可选token
---dart-define=EASTER_EGG_AUDIO_URL=https://你的音频地址.flac
 ```
 
 ---

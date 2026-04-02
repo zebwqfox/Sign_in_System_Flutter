@@ -23,12 +23,15 @@ class StorageService {
   static const _kThemeMode = 'theme_mode';
   static const _kThemeColorMode = 'theme_color_mode';
   static const _kThemeSeedColor = 'theme_seed_color';
+  static const _kLegalAgreementAccepted = 'legal_agreement_accepted';
   static const _kDebugMode = 'debug_mode';
   static const _kLiquidGlassEnabled = 'liquid_glass_enabled';
   static const _kPending = 'pending_sessions';
   static const _kInstallId = 'install_id';
   static const _kAuditEvents = 'audit_events';
   static const _kAuditLastUploadedTsMs = 'audit_last_uploaded_ts_ms';
+  static const _kAiReviewCache = 'ai_review_cache_v1';
+  static const _kCourseSchedule = 'course_schedule_v1';
   /// 与后端 `POST /api/login` 返回的 `data.sessionId` 一致，请求头 `x-auth-token` 使用。
   static const _kAuthSessionId = 'auth_session_id';
 
@@ -108,6 +111,12 @@ class StorageService {
 
   Future<void> setThemeSeedColor(int colorValue) async {
     await _p.setInt(_kThemeSeedColor, colorValue);
+  }
+
+  bool get legalAgreementAccepted => _p.getBool(_kLegalAgreementAccepted) ?? false;
+
+  Future<void> setLegalAgreementAccepted(bool accepted) async {
+    await _p.setBool(_kLegalAgreementAccepted, accepted);
   }
 
   bool get debugModeEnabled => _p.getBool(_kDebugMode) ?? false;
@@ -211,5 +220,77 @@ class StorageService {
 
   Future<void> setAuditLastUploadedTsMs(int tsMs) async {
     await _p.setInt(_kAuditLastUploadedTsMs, tsMs);
+  }
+
+  Future<String?> getAiReviewCache(String sessionId) async {
+    final sid = sessionId.trim();
+    if (sid.isEmpty) return null;
+    final raw = _p.getString(_kAiReviewCache);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final map = Map<String, dynamic>.from(jsonDecode(raw) as Map);
+      final item = map[sid];
+      if (item is! Map) return null;
+      final text = (item['text'] ?? '').toString().trim();
+      return text.isEmpty ? null : text;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setAiReviewCache(
+    String sessionId,
+    String text, {
+    int maxItems = 120,
+  }) async {
+    final sid = sessionId.trim();
+    final content = text.trim();
+    if (sid.isEmpty || content.isEmpty) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final raw = _p.getString(_kAiReviewCache);
+    final map = <String, dynamic>{};
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        map.addAll(Map<String, dynamic>.from(jsonDecode(raw) as Map));
+      } catch (_) {}
+    }
+    map[sid] = {
+      'text': content,
+      'ts_ms': now,
+    };
+
+    if (map.length > maxItems) {
+      final keys = map.keys.toList()
+        ..sort((a, b) {
+          final ta = ((map[a] as Map?)?['ts_ms'] as num?)?.toInt() ?? 0;
+          final tb = ((map[b] as Map?)?['ts_ms'] as num?)?.toInt() ?? 0;
+          return ta.compareTo(tb);
+        });
+      final removeCount = map.length - maxItems;
+      for (var i = 0; i < removeCount; i++) {
+        map.remove(keys[i]);
+      }
+    }
+
+    await _p.setString(_kAiReviewCache, jsonEncode(map));
+  }
+
+  List<Map<String, dynamic>> getCourseSchedule() {
+    final raw = _p.getString(_kCourseSchedule);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> setCourseSchedule(List<Map<String, dynamic>> items) async {
+    await _p.setString(_kCourseSchedule, jsonEncode(items));
+  }
+
+  Future<void> clearCourseSchedule() async {
+    await _p.remove(_kCourseSchedule);
   }
 }

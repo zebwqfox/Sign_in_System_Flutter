@@ -127,6 +127,8 @@ abstract final class AppTheme {
         scrolledUnderElevation: 0,
         backgroundColor: bg,
         foregroundColor: text,
+        titleSpacing: 20,
+        leadingWidth: 46,
         titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: text),
       ),
       cardTheme: CardThemeData(
