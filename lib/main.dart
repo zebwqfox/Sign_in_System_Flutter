@@ -179,9 +179,15 @@ class _SignInRootState extends State<_SignInRoot> with WidgetsBindingObserver {
     var canInstall = _canInstallPackages;
 
     try {
-      // iOS 上部分设备/系统组合会在启动期调用定位插件时出现原生崩溃。
-      // 这里改为仅在用户主动触发时再检查定位，避免“进应用即闪退”。
-      if (!Platform.isIOS || userInitiated) {
+      // iOS 启动期至少要读取一次权限状态，否则会一直显示未授权。
+      // 为了稳妥，冷启动只做 checkPermission，不做更重的系统设置检查。
+      if (Platform.isIOS && !userInitiated) {
+        try {
+          locPermission = await Geolocator.checkPermission();
+          // 冷启动仅用于放行判定，避免出现“未开启定位服务”误导。
+          locEnabled = true;
+        } catch (_) {}
+      } else {
         try {
           locEnabled = await Geolocator.isLocationServiceEnabled();
           locPermission = await Geolocator.checkPermission();
