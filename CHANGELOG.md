@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.13+14 - 2026-04-03
+
+### 新增
+- 扩展触感反馈：底栏、首页、设置、统计/历史列表、统计详情、点名栏、登录等主要交互均支持触感（iOS 原生通道 + Android HapticFeedback）。
+- 新增 `tapSelection` / `tapRigid` 等便捷触感入口。
+
+### 优化
+- 更新检查：iOS 上不再因「强制更新」阻断返回与关闭弹窗；Android 仍可按策略强更。
+- 移除 Liquid Glass 相关依赖与设置项。
+
+### 发布信息
+- 版本号：`1.0.13+14`
+- 构建类型：Android Release APK
+- 构建产物：`build/app/outputs/flutter-apk/app-release.apk`
+
 ## 1.0.12+13 - 2026-03-30
 
 ### 新增
