@@ -128,6 +128,17 @@ class SettingsScreen extends StatelessWidget {
                         : '已使用手动主题色，优先级高于莫奈动态色。',
                     style: TextStyle(fontSize: 12, color: muted),
                   ),
+                  if (Theme.of(context).platform == TargetPlatform.iOS) ...[
+                    const SizedBox(height: 10),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      secondary: const Icon(Icons.blur_on_rounded, size: 18),
+                      title: const Text('iOS Liquid Glass', style: TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: const Text('开启后底栏使用更强的原生液态玻璃效果'),
+                      value: app.liquidGlassEnabled,
+                      onChanged: (v) => app.setLiquidGlassEnabled(v),
+                    ),
+                  ],
                 ],
               ),
             ),
