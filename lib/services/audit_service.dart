@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
@@ -141,6 +142,13 @@ class AuditService {
       'lng': null,
       'accuracy': null,
     };
+    // 避免 iOS 启动早期因定位插件调用导致潜在原生崩溃。
+    if (Platform.isIOS) {
+      status['permission'] = 'deferred_on_ios';
+      _lastLocation = status;
+      _lastLocationAt = now;
+      return status;
+    }
     try {
       final enabled = await Geolocator.isLocationServiceEnabled();
       status['enabled'] = enabled;

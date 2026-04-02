@@ -165,17 +165,21 @@ class _SignInRootState extends State<_SignInRoot> with WidgetsBindingObserver {
     });
   }
 
-  Future<void> _refreshPermissionState() async {
+  Future<void> _refreshPermissionState({bool userInitiated = false}) async {
     if (_checkingPermission) return;
     _checkingPermission = true;
     bool locEnabled = false;
     LocationPermission locPermission = LocationPermission.denied;
     var canInstall = true;
 
-    try {
-      locEnabled = await Geolocator.isLocationServiceEnabled();
-      locPermission = await Geolocator.checkPermission();
-    } catch (_) {}
+    // iOS 上部分设备/系统组合会在启动期调用定位插件时出现原生崩溃。
+    // 这里改为仅在用户主动触发时再检查定位，避免“进应用即闪退”。
+    if (!Platform.isIOS || userInitiated) {
+      try {
+        locEnabled = await Geolocator.isLocationServiceEnabled();
+        locPermission = await Geolocator.checkPermission();
+      } catch (_) {}
+    }
 
     if (Platform.isAndroid) {
       try {
@@ -202,16 +206,24 @@ class _SignInRootState extends State<_SignInRoot> with WidgetsBindingObserver {
   }
 
   Future<void> _handleGrantLocation() async {
-    if (!_locationServiceEnabled) {
-      await Geolocator.openLocationSettings();
-      return;
+    try {
+      if (!_locationServiceEnabled) {
+        await Geolocator.openLocationSettings();
+        await _refreshPermissionState(userInitiated: true);
+        return;
+      }
+      if (_locationPermission == LocationPermission.denied) {
+        await Geolocator.requestPermission();
+        await _refreshPermissionState(userInitiated: true);
+        return;
+      }
+      await Geolocator.openAppSettings();
+      await _refreshPermissionState(userInitiated: true);
+    } catch (_) {
+      if (mounted) {
+        TopToast.show(context, '定位权限检查失败，请稍后重试', error: true);
+      }
     }
-    if (_locationPermission == LocationPermission.denied) {
-      await Geolocator.requestPermission();
-      await _refreshPermissionState();
-      return;
-    }
-    await Geolocator.openAppSettings();
   }
 
   Future<void> _handleGrantInstallPermission() async {
@@ -273,7 +285,7 @@ class _SignInRootState extends State<_SignInRoot> with WidgetsBindingObserver {
                                   onGrantLocation: _handleGrantLocation,
                                   onGrantInstallPermission:
                                       Platform.isAndroid ? _handleGrantInstallPermission : null,
-                                  onRetry: _refreshPermissionState,
+                                  onRetry: () => _refreshPermissionState(userInitiated: true),
                                 ),
                                 agreementPage: _AgreementGateView(
                                   loading: !_agreementReady,
