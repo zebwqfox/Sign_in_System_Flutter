@@ -1,4 +1,7 @@
-import 'package:file_selector/file_selector.dart';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -40,21 +43,24 @@ class _ScheduleManagerScreenState extends State<ScheduleManagerScreen> {
     final app = context.read<AppController>();
     setState(() => _importing = true);
     try {
-      const typeGroup = XTypeGroup(
-        label: 'iCalendar',
-        extensions: ['ics'],
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        withData: true,
       );
-      final file = await openFile(
-        acceptedTypeGroups: const [typeGroup],
-        confirmButtonText: '导入',
-      );
-      if (file == null) return;
-      if (!file.name.toLowerCase().endsWith('.ics')) {
+      if (picked == null || picked.files.isEmpty) return;
+      final file = picked.files.first;
+      final ext = (file.extension ?? '').toLowerCase();
+      if (ext != 'ics') {
         if (mounted) TopToast.show(context, '请选择 .ics 文件', error: true);
         return;
       }
-      final text = await file.readAsString();
-      if (text.trim().isEmpty) {
+      String? text;
+      if (file.bytes != null) {
+        text = utf8.decode(file.bytes!, allowMalformed: true);
+      } else if (file.path != null && file.path!.isNotEmpty) {
+        text = await File(file.path!).readAsString();
+      }
+      if (text == null || text.trim().isEmpty) {
         if (mounted) TopToast.show(context, '文件为空或读取失败', error: true);
         return;
       }

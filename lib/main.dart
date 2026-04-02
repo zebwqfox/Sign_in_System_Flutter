@@ -79,6 +79,7 @@ class _SignInRootState extends State<_SignInRoot> with WidgetsBindingObserver {
   bool _showLaunchOverlay = true;
   double _launchOverlayOpacity = 0;
   Offset _launchOverlayOffset = const Offset(0, 0.08);
+  bool _recheckPermissionOnResume = false;
   bool get _canCheckAgreement => _userAgreementReadToEnd && _privacyPolicyReadToEnd;
 
   @override
@@ -112,7 +113,12 @@ class _SignInRootState extends State<_SignInRoot> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_refreshPermissionState());
+      if (Platform.isIOS && _recheckPermissionOnResume) {
+        _recheckPermissionOnResume = false;
+        unawaited(_refreshPermissionState(userInitiated: true));
+      } else {
+        unawaited(_refreshPermissionState());
+      }
     }
   }
 
@@ -168,55 +174,75 @@ class _SignInRootState extends State<_SignInRoot> with WidgetsBindingObserver {
   Future<void> _refreshPermissionState({bool userInitiated = false}) async {
     if (_checkingPermission) return;
     _checkingPermission = true;
-    bool locEnabled = false;
-    LocationPermission locPermission = LocationPermission.denied;
-    var canInstall = true;
+    bool locEnabled = _locationServiceEnabled;
+    LocationPermission locPermission = _locationPermission;
+    var canInstall = _canInstallPackages;
 
-    // iOS 上部分设备/系统组合会在启动期调用定位插件时出现原生崩溃。
-    // 这里改为仅在用户主动触发时再检查定位，避免“进应用即闪退”。
-    if (!Platform.isIOS || userInitiated) {
-      try {
-        locEnabled = await Geolocator.isLocationServiceEnabled();
-        locPermission = await Geolocator.checkPermission();
-      } catch (_) {}
-    }
-
-    if (Platform.isAndroid) {
-      try {
-        canInstall = await AndroidPackageInstaller.canRequestPackageInstalls();
-      } catch (_) {
-        canInstall = false;
+    try {
+      // iOS 上部分设备/系统组合会在启动期调用定位插件时出现原生崩溃。
+      // 这里改为仅在用户主动触发时再检查定位，避免“进应用即闪退”。
+      if (!Platform.isIOS || userInitiated) {
+        try {
+          locEnabled = await Geolocator.isLocationServiceEnabled();
+          locPermission = await Geolocator.checkPermission();
+        } catch (_) {}
       }
+
+      if (Platform.isAndroid) {
+        try {
+          canInstall = await AndroidPackageInstaller.canRequestPackageInstalls();
+        } catch (_) {
+          canInstall = false;
+        }
+      }
+
+      final locGranted = locPermission == LocationPermission.whileInUse ||
+          locPermission == LocationPermission.always;
+      // 不再强制要求系统定位总开关必须打开：
+      // 已授权即可进入应用，关闭定位仅影响坐标采集，不影响核心功能使用。
+      final ready = locGranted && canInstall;
+
+      if (!mounted) return;
+      setState(() {
+        _locationServiceEnabled = locEnabled;
+        _locationPermission = locPermission;
+        _canInstallPackages = canInstall;
+        _permissionReady = ready;
+      });
+    } finally {
+      _checkingPermission = false;
     }
-
-    final locGranted = locPermission == LocationPermission.whileInUse ||
-        locPermission == LocationPermission.always;
-    // 不再强制要求系统定位总开关必须打开：
-    // 已授权即可进入应用，关闭定位仅影响坐标采集，不影响核心功能使用。
-    final ready = locGranted && canInstall;
-
-    if (!mounted) return;
-    setState(() {
-      _locationServiceEnabled = locEnabled;
-      _locationPermission = locPermission;
-      _canInstallPackages = canInstall;
-      _permissionReady = ready;
-    });
-    _checkingPermission = false;
   }
 
   Future<void> _handleGrantLocation() async {
     try {
+      await _refreshPermissionState(userInitiated: true);
+
+      if (Platform.isIOS) {
+        if (_locationPermission == LocationPermission.denied) {
+          await Geolocator.requestPermission();
+          await _refreshPermissionState(userInitiated: true);
+          return;
+        }
+        _recheckPermissionOnResume = true;
+        await Geolocator.openAppSettings();
+        await _refreshPermissionState(userInitiated: true);
+        return;
+      }
+
       if (!_locationServiceEnabled) {
+        _recheckPermissionOnResume = true;
         await Geolocator.openLocationSettings();
         await _refreshPermissionState(userInitiated: true);
         return;
       }
-      if (_locationPermission == LocationPermission.denied) {
+      if (_locationPermission == LocationPermission.denied ||
+          _locationPermission == LocationPermission.deniedForever) {
         await Geolocator.requestPermission();
         await _refreshPermissionState(userInitiated: true);
         return;
       }
+      _recheckPermissionOnResume = true;
       await Geolocator.openAppSettings();
       await _refreshPermissionState(userInitiated: true);
     } catch (_) {
