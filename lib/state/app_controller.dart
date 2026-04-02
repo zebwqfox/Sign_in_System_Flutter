@@ -78,8 +78,6 @@ class AppController extends ChangeNotifier {
   bool get isLoggedIn => storage.isLoggedIn;
   bool get voiceEnabled => storage.voiceEnabled;
   bool get pinyinEnabled => storage.pinyinEnabled;
-  bool get liquidGlassEnabled => storage.liquidGlassEnabled;
-
   Future<void> setVoiceEnabled(bool v) async {
     await storage.setVoiceEnabled(v);
     notifyListeners();
@@ -106,11 +104,6 @@ class AppController extends ChangeNotifier {
   Future<void> setThemeSeedColor(int colorValue) async {
     await storage.setThemeSeedColor(colorValue);
     themeSeedColor = colorValue;
-    notifyListeners();
-  }
-
-  Future<void> setLiquidGlassEnabled(bool v) async {
-    await storage.setLiquidGlassEnabled(v);
     notifyListeners();
   }
 

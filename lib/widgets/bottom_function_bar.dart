@@ -1,10 +1,5 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
-
-import '../state/app_controller.dart';
 
 class BottomFunctionBar extends StatefulWidget {
   const BottomFunctionBar({
@@ -99,12 +94,9 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
 
   @override
   Widget build(BuildContext context) {
-    final app = context.watch<AppController>();
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
+    final scheme = Theme.of(context).colorScheme;
     final activeColor = scheme.primary;
     final inactiveColor = scheme.onSurfaceVariant;
-    final iOSLiquidGlass = theme.platform == TargetPlatform.iOS && app.liquidGlassEnabled;
 
     final plainBar = Container(
       height: 64,
@@ -130,35 +122,6 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
         ),
       ),
     );
-    final barWidget = iOSLiquidGlass
-        ? ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-              child: Container(
-                height: 64,
-                decoration: BoxDecoration(
-                  color: scheme.surface.withValues(alpha: 0.58),
-                  border: Border(
-                    top: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.38),
-                      width: 0.8,
-                    ),
-                  ),
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.white.withValues(alpha: 0.18),
-                      scheme.surface.withValues(alpha: 0.52),
-                    ],
-                  ),
-                ),
-                child: plainBar,
-              ),
-            ),
-          )
-        : plainBar;
 
     return SafeArea(
       top: false,
@@ -168,7 +131,7 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeInOutCubic,
-        height: _visible ? (iOSLiquidGlass ? 68 : 64) : 0,
+        height: _visible ? 64 : 0,
         child: ClipRect(
           child: IgnorePointer(
             ignoring: !_visible,
@@ -177,7 +140,7 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
               opacity: _visible ? 1 : 0,
               child: Transform.translate(
                 offset: _visible ? Offset.zero : const Offset(0, 18),
-                child: barWidget,
+                child: plainBar,
               ),
             ),
           ),

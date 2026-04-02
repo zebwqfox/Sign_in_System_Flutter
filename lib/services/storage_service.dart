@@ -25,7 +25,6 @@ class StorageService {
   static const _kThemeSeedColor = 'theme_seed_color';
   static const _kLegalAgreementAccepted = 'legal_agreement_accepted';
   static const _kDebugMode = 'debug_mode';
-  static const _kLiquidGlassEnabled = 'liquid_glass_enabled';
   static const _kPending = 'pending_sessions';
   static const _kInstallId = 'install_id';
   static const _kAuditEvents = 'audit_events';
@@ -122,10 +121,6 @@ class StorageService {
   bool get debugModeEnabled => _p.getBool(_kDebugMode) ?? false;
 
   Future<void> setDebugModeEnabled(bool v) => _p.setBool(_kDebugMode, v);
-
-  bool get liquidGlassEnabled => _p.getBool(_kLiquidGlassEnabled) ?? false;
-
-  Future<void> setLiquidGlassEnabled(bool v) => _p.setBool(_kLiquidGlassEnabled, v);
 
   Future<List<LocalPendingSession>> loadPendingSessions() async {
     final raw = _p.getString(_kPending);
