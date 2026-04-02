@@ -68,5 +68,9 @@
 		</array>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>用于签到时获取位置信息与审计记录，便于课程考勤管理。</string>
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>用于签到时获取位置信息与审计记录，便于课程考勤管理。</string>
 	</dict>
 </plist>
