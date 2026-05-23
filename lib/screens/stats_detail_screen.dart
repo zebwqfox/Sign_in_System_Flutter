@@ -164,7 +164,9 @@ class _StatsDetailScreenState extends State<StatsDetailScreen> {
     final label = _statusLabel(status);
     final filtered = scoped.where((r) {
       final s = (r['status'] ?? '').toString();
-      if (status == 'absent') return s != 'present' && s != 'late' && s != 'leave';
+      if (status == 'absent') {
+        return s != 'present' && s != 'late' && s != 'leave';
+      }
       return s == status;
     }).toList();
     Navigator.of(context).push(
@@ -434,7 +436,7 @@ class _StatsDetailScreenState extends State<StatsDetailScreen> {
                                   padding: EdgeInsets.symmetric(horizontal: ui.sidePadding),
                                   sliver: SliverList.separated(
                                     itemCount: scoped.length,
-                                    separatorBuilder: (_, __) => SizedBox(height: ui.itemSpacing),
+                                    separatorBuilder: (_, _) => SizedBox(height: ui.itemSpacing),
                                     itemBuilder: (ctx, i) => Center(
                                       child: ConstrainedBox(
                                         constraints: BoxConstraints(maxWidth: ui.maxContentWidth),
@@ -1040,7 +1042,7 @@ class _StatusSessionListScreen extends StatelessWidget {
           : ListView.separated(
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 16),
               itemCount: records.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, i) {
                 final r = records[i];
                 final sessionName = (r['session_name'] ?? '').toString();

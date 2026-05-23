@@ -81,7 +81,11 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
 
   bool _shouldShowForLocation(String loc) {
     // 只在“主功能页”常驻，二级页面（详情、编辑等）全部隐藏
-    return loc == '/' || loc == '/history' || loc == '/stats' || loc == '/logs' || loc == '/settings';
+    return loc == '/' ||
+        loc == '/history' ||
+        loc == '/stats' ||
+        loc == '/logs' ||
+        loc == '/settings';
   }
 
   int get _tabIndex {
@@ -95,29 +99,81 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final activeColor = scheme.primary;
-    final inactiveColor = scheme.onSurfaceVariant;
+    const activeColor = Color(0xFF7B4DFF);
+    final inactiveColor = scheme.onSurfaceVariant.withValues(alpha: 0.82);
 
-    final plainBar = Container(
-      height: 64,
+    final floatingBar = Container(
+      height: 74,
+      margin: const EdgeInsets.fromLTRB(18, 0, 18, 10),
       decoration: BoxDecoration(
-        color: scheme.surface,
-        border: Border(
-          top: BorderSide(
-            color: scheme.outlineVariant.withValues(alpha: 0.55),
-            width: 1,
-          ),
+        color: scheme.surface.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(38),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.78),
+          width: 1.2,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 30,
+            offset: const Offset(0, 16),
+          ),
+        ],
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         child: Row(
           children: [
-            _tab(context, 0, Icons.home_rounded, '首页', '/', _tabIndex == 0, activeColor, inactiveColor),
-            _tab(context, 1, Icons.history_rounded, '历史', '/history', _tabIndex == 1, activeColor, inactiveColor),
-            _tab(context, 2, Icons.bar_chart_rounded, '统计', '/stats', _tabIndex == 2, activeColor, inactiveColor),
-            _tab(context, 3, Icons.receipt_long_rounded, '日志', '/logs', _tabIndex == 3, activeColor, inactiveColor),
-            _tab(context, 4, Icons.settings_rounded, '设置', '/settings', _tabIndex == 4, activeColor, inactiveColor),
+            _tab(
+              context,
+              0,
+              Icons.home_rounded,
+              '首页',
+              '/',
+              _tabIndex == 0,
+              activeColor,
+              inactiveColor,
+            ),
+            _tab(
+              context,
+              1,
+              Icons.history_rounded,
+              '历史',
+              '/history',
+              _tabIndex == 1,
+              activeColor,
+              inactiveColor,
+            ),
+            _tab(
+              context,
+              2,
+              Icons.bar_chart_rounded,
+              '统计',
+              '/stats',
+              _tabIndex == 2,
+              activeColor,
+              inactiveColor,
+            ),
+            _tab(
+              context,
+              3,
+              Icons.receipt_long_rounded,
+              '日志',
+              '/logs',
+              _tabIndex == 3,
+              activeColor,
+              inactiveColor,
+            ),
+            _tab(
+              context,
+              4,
+              Icons.settings_rounded,
+              '设置',
+              '/settings',
+              _tabIndex == 4,
+              activeColor,
+              inactiveColor,
+            ),
           ],
         ),
       ),
@@ -131,7 +187,7 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 240),
         curve: Curves.easeInOutCubic,
-        height: _visible ? 64 : 0,
+        height: _visible ? 92 : 0,
         child: ClipRect(
           child: IgnorePointer(
             ignoring: !_visible,
@@ -140,7 +196,7 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
               opacity: _visible ? 1 : 0,
               child: Transform.translate(
                 offset: _visible ? Offset.zero : const Offset(0, 18),
-                child: plainBar,
+                child: floatingBar,
               ),
             ),
           ),
@@ -176,8 +232,8 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 SizedBox(
-                  width: 24,
-                  height: 24,
+                  width: 30,
+                  height: 30,
                   child: active
                       ? TweenAnimationBuilder<double>(
                           key: ValueKey<String>('draw-$index-$active'),
@@ -185,7 +241,10 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
                           duration: const Duration(milliseconds: 320),
                           curve: Curves.easeOutCubic,
                           builder: (context, progress, _) {
-                            final revealStart = (progress - 0.22).clamp(0.0, 1.0);
+                            final revealStart = (progress - 0.22).clamp(
+                              0.0,
+                              1.0,
+                            );
                             return Stack(
                               alignment: Alignment.center,
                               children: [
@@ -194,7 +253,10 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
                                   shaderCallback: (bounds) {
                                     final edge = progress.clamp(0.0, 1.0);
                                     final soft = 0.18;
-                                    final hardStart = (edge - soft).clamp(0.0, 1.0);
+                                    final hardStart = (edge - soft).clamp(
+                                      0.0,
+                                      1.0,
+                                    );
                                     return LinearGradient(
                                       begin: Alignment.centerLeft,
                                       end: Alignment.centerRight,
@@ -204,25 +266,39 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
                                         Colors.transparent,
                                         Colors.transparent,
                                       ],
-                                      stops: [
-                                        0,
-                                        hardStart,
-                                        edge,
-                                        1,
-                                      ],
+                                      stops: [0, hardStart, edge, 1],
                                     ).createShader(bounds);
                                   },
-                                  child: Icon(outlinedIcon, size: 24, color: activeColor),
+                                  child: Icon(
+                                    outlinedIcon,
+                                    size: 24,
+                                    color: activeColor,
+                                  ),
                                 ),
                                 Opacity(
                                   opacity: revealStart,
-                                  child: Icon(icon, size: 24, color: activeColor),
+                                  child: ShaderMask(
+                                    shaderCallback: (bounds) =>
+                                        const LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            Color(0xFF8F5BFF),
+                                            Color(0xFF5F67FF),
+                                          ],
+                                        ).createShader(bounds),
+                                    child: Icon(
+                                      icon,
+                                      size: 28,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                                 ),
                               ],
                             );
                           },
                         )
-                      : Icon(outlinedIcon, size: 24, color: color),
+                      : Icon(outlinedIcon, size: 28, color: color),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -231,6 +307,18 @@ class _BottomFunctionBarState extends State<BottomFunctionBar> {
                     fontSize: 10,
                     fontWeight: active ? FontWeight.w900 : FontWeight.w700,
                     color: color,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  width: active ? 14 : 0,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF9A6CFF), Color(0xFF5F67FF)],
+                    ),
+                    borderRadius: BorderRadius.circular(999),
                   ),
                 ),
               ],
